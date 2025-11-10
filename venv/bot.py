@@ -8,6 +8,12 @@ import random
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
+
 
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
