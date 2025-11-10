@@ -8,6 +8,16 @@ import random
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
+import os
+from dotenv import load_dotenv
+import os
+
+TOKEN = os.getenv("TOKEN")
+bot.run(TOKEN)
+# Configuración de apuestas
+MIN_BET = 100
+MAX_BET = 1000000000000
+
 
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
