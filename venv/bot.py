@@ -10,9 +10,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 import os
 from dotenv import load_dotenv
+import os
 
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.getenv("TOKEN")
+bot.run(TOKEN)
 
 
 # ----------------- CONFIG -----------------
