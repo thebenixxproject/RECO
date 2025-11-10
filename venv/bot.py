@@ -14,6 +14,9 @@ import os
 
 TOKEN = os.getenv("TOKEN")
 bot.run(TOKEN)
+# Configuración de apuestas
+MIN_BET = 10
+MAX_BET = 1000
 
 
 # ----------------- CONFIG -----------------
