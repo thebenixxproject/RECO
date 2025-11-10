@@ -10,8 +10,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 # ----------------- CONFIG -----------------
-TOKEN = "MTQzNzIxNDE0Mjc3OTA5NzMyMw.G1D9B1.WwMX89JsrJZLifakkpgEJzQF-1fAhDwKxtpdGI"  # <- poné tu token aquí (no lo subas a internet)
-MIN_BET = 100
+from dotenv import load_dotenv
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
 DAILY_AMOUNT = 10000
 WORK_MIN = 1000
 WORK_MAX = 5000
