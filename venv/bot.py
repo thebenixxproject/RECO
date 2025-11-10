@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 import os
 
 TOKEN = os.getenv("TOKEN")
-bot.run(TOKEN)
+
 # Configuración de apuestas
 MIN_BET = 10
 MAX_BET = 1000000000000
@@ -35,7 +35,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
 # ----------------- UTIL / STORAGE -----------------
