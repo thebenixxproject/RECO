@@ -28,7 +28,7 @@ def keep_alive():
 # -------------------------
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
-ALLOWED_GUILD_ID = 1414328901584551949
+ALLOWED_GUILD_ID = 1437214142779097323
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -61,6 +61,7 @@ async def ping(interaction: discord.Interaction):
 # -------------------------
 keep_alive()
 bot.run(TOKEN)
+
 # Cargar variables del entorno
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -68,7 +69,7 @@ TOKEN = os.getenv("TOKEN")
 # Configuración
 MIN_BET = 10
 MAX_BET = 1000000000000
-ALLOWED_GUILD_ID = 1414328901584551949  # ✅ ID del servidor RESONA TEMP. 2
+ALLOWED_GUILD_ID = 1437214142779097323  # ✅ ID del servidor RESONA TEMP. 2
 
 DAILY_AMOUNT = 10000
 WORK_MIN = 1000
@@ -96,7 +97,6 @@ async def only_in_resona(ctx):
         await ctx.send("❌ Este bot solo está autorizado para usarse en el servidor **RESONA TEMP. 2**.")
         return False
     return True
-
 
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
@@ -802,8 +802,6 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
-
-
 
 
 
