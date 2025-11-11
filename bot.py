@@ -18,6 +18,20 @@ TOKEN = os.getenv("TOKEN")
 MIN_BET = 10
 MAX_BET = 1000000000000
 
+ALLOWED_GUILD_ID = 1414328901584551949  # ⬅️ ID de tu server RESONA TEMP. 2
+
+@bot.check
+async def globally_block_dms_and_other_servers(ctx):
+    if ctx.guild is None:
+        # Bloquear DMs
+        await ctx.send("❌ Este bot solo funciona dentro del servidor RESONA TEMP. 2.")
+        return False
+    if ctx.guild.id != ALLOWED_GUILD_ID:
+        # Bloquear otros servidores
+        await ctx.send("❌ Este bot solo está autorizado para usarse en el servidor **RESONA TEMP. 2**.")
+        return False
+    return True
+
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
 load_dotenv()
@@ -722,5 +736,6 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
