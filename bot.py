@@ -27,6 +27,8 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 # ---------------------
+keep_alive()
+bot.run(TOKEN)
 
 # Cargar variables del entorno
 load_dotenv()
@@ -63,7 +65,6 @@ async def only_in_resona(ctx):
         await ctx.send("❌ Este bot solo está autorizado para usarse en el servidor **RESONA TEMP. 2**.")
         return False
     return True
-
 
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
@@ -769,6 +770,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
