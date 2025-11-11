@@ -13,11 +13,10 @@ from dotenv import load_dotenv
 import os
 
 TOKEN = os.getenv("TOKEN")
-bot.run(TOKEN)
-# Configuración de apuestas
-MIN_BET = 100
-MAX_BET = 1000000000000
 
+# Configuración de apuestas
+MIN_BET = 10
+MAX_BET = 1000000000000
 
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
@@ -36,7 +35,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
 # ----------------- UTIL / STORAGE -----------------
@@ -287,8 +286,8 @@ async def work(interaction: discord.Interaction):
     last = last_work.get(uid)
     if last:
         elapsed = (now - datetime.fromisoformat(last)).total_seconds()
-        if elapsed < 86400:
-            rem = int(86400 - elapsed)
+        if elapsed < 420:
+            rem = int(420 - elapsed)
             h = rem//3600; m = (rem%3600)//60
             embed = dark_embed("⏳ Ya trabajaste hoy", f"Volvé en **{h}h {m}m** para trabajar otra vez.", 0xE67E22)
             await interaction.response.send_message(embed=embed)
@@ -720,4 +719,8 @@ if __name__ == "__main__":
     # ensure files exist
     save_json(BALANCES_FILE, balances)
     save_json(SHARED_FILE, shared_accounts)
+    load_dotenv()
+    TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
+
