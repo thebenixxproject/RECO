@@ -1,4 +1,4 @@
-# bot.py
+#bot py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -8,26 +8,40 @@ import random
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
-import os
 from dotenv import load_dotenv
-import os
 
+# Cargar variables del entorno
+load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
-# Configuración de apuestas
+# Configuración
 MIN_BET = 10
 MAX_BET = 1000000000000
+ALLOWED_GUILD_ID = 1414328901584551949  # ✅ ID del servidor RESONA TEMP. 2
 
-ALLOWED_GUILD_ID = 1414328901584551949  # ⬅️ ID de tu server RESONA TEMP. 2
+DAILY_AMOUNT = 10000
+WORK_MIN = 1000
+WORK_MAX = 5000
+DATA_DIR = "."
 
+BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
+SHARED_FILE = os.path.join(DATA_DIR, "sharedaccounts.json")
+
+# ----------------- SETUP BOT -----------------
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+
+bot = commands.Bot(command_prefix="/", intents=intents)
+tree = bot.tree
+
+# ✅ Verificador global: solo se permite usar comandos en RESONA TEMP. 2
 @bot.check
-async def globally_block_dms_and_other_servers(ctx):
+async def only_in_resona(ctx):
     if ctx.guild is None:
-        # Bloquear DMs
-        await ctx.send("❌ Este bot solo funciona dentro del servidor RESONA TEMP. 2.")
+        await ctx.send("❌ Este bot solo funciona dentro del servidor **RESONA TEMP. 2**.")
         return False
     if ctx.guild.id != ALLOWED_GUILD_ID:
-        # Bloquear otros servidores
         await ctx.send("❌ Este bot solo está autorizado para usarse en el servidor **RESONA TEMP. 2**.")
         return False
     return True
@@ -736,6 +750,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
