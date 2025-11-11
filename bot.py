@@ -9,7 +9,8 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 from dotenv import load_dotenv
-
+from flask import Flask
+from threading import Thread
 # --------------------------
 # Mantener bot activo (Render)
 # --------------------------
@@ -806,6 +807,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
