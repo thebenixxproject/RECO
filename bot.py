@@ -50,7 +50,11 @@ async def on_ready():
         print(f"⚠️ Error al sincronizar comandos: {e}")
 
     print(f"✅ Bot listo como {bot.user}")
-
+@bot.event
+async def on_ready():
+    guild = discord.Object(id=ALLOWED_GUILD_ID)
+    await tree.sync(guild=guild)
+    print(f"✅ {bot.user} conectado y comandos sincronizados.")
 # -------------------------
 # Comando de prueba
 # -------------------------
@@ -98,7 +102,6 @@ async def only_in_resona(ctx):
         await ctx.send("❌ Este bot solo está autorizado para usarse en el servidor **RESONA TEMP. 2**.")
         return False
     return True
-
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
 load_dotenv()
@@ -803,6 +806,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
