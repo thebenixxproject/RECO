@@ -37,7 +37,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
 
 # --------------------------
 # Restricción: solo en servidor RESONA TEMP. 2
@@ -807,6 +807,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
