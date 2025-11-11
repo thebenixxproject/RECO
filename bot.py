@@ -1,20 +1,16 @@
-#bot py
-import discord
-from discord import app_commands
-from discord.ext import commands
-import json
-import os
-import random
-import asyncio
-from datetime import datetime, timedelta
-from typing import Optional
-from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
-# --------------------------
-# Mantener bot activo (Render)
-# --------------------------
-app = Flask('')
+import discord
+from discord.ext import commands
+from discord import app_commands
+import os, json, asyncio, random
+from datetime import datetime
+from dotenv import load_dotenv
+
+# -------------------------
+# Mantener vivo (Render)
+# -------------------------
+app = Flask(__name__)
 
 @app.route('/')
 def home():
@@ -27,43 +23,42 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# --------------------------
-# Configuración del bot
-# --------------------------
-TOKEN = os.getenv("TOKEN")  # o reemplazá con tu token directo
+# -------------------------
+# Configuración
+# -------------------------
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
+ALLOWED_GUILD_ID = 1414328901584551949
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.guilds = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
+tree = bot.tree
 
-# --------------------------
-# Restricción: solo en servidor RESONA TEMP. 2
-# --------------------------
-ALLOWED_GUILD_ID = 123456789012345678  # reemplazá con el ID real de tu server
-
-@bot.check
-async def globally_block_dms(ctx):
-    if ctx.guild is None:
-        return False
-    return ctx.guild.id == ALLOWED_GUILD_ID
-
-# --------------------------
-# Eventos y comandos
-# --------------------------
+# -------------------------
+# Eventos
+# -------------------------
 @bot.event
 async def on_ready():
-    print(f"✅ Bot conectado como {bot.user}")
+    print(f"✅ Conectado como {bot.user}")
+    try:
+        synced = await tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
+        print(f"🔁 {len(synced)} comandos sincronizados en el servidor.")
+    except Exception as e:
+        print(f"⚠️ Error al sincronizar comandos: {e}")
 
-@bot.command()
-async def ping(ctx):
-    await ctx.send("Pong!")
+# -------------------------
+# Comando de prueba
+# -------------------------
+@tree.command(name="ping", description="Prueba de conexión")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("Pong!")
 
-# --------------------------
-# Iniciar bot
-# --------------------------
+# -------------------------
+# Iniciar todo
+# -------------------------
 keep_alive()
 bot.run(TOKEN)
 # Cargar variables del entorno
@@ -807,6 +802,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
