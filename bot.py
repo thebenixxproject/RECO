@@ -42,12 +42,14 @@ tree = bot.tree
 # -------------------------
 @bot.event
 async def on_ready():
-    print(f"✅ Conectado como {bot.user}")
+    guild = discord.Object(id=ALLOWED_GUILD_ID)
     try:
-        synced = await tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
-        print(f"🔁 {len(synced)} comandos sincronizados en el servidor.")
+        synced = await tree.sync(guild=guild)
+        print(f"🔁 {len(synced)} comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
     except Exception as e:
         print(f"⚠️ Error al sincronizar comandos: {e}")
+
+    print(f"✅ Bot listo como {bot.user}")
 
 # -------------------------
 # Comando de prueba
@@ -87,7 +89,6 @@ intents.members = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
-# ✅ Verificador global: solo se permite usar comandos en RESONA TEMP. 2
 @bot.check
 async def only_in_resona(ctx):
     if ctx.guild is None:
@@ -802,6 +803,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
