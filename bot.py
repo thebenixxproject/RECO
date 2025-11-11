@@ -10,15 +10,14 @@ from datetime import datetime, timedelta
 from typing import Optional
 from dotenv import load_dotenv
 
-# ---- Keep Alive ----
-from flask import Flask
-from threading import Thread
-
+# --------------------------
+# Mantener bot activo (Render)
+# --------------------------
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is alive!"
+    return "Bot activo :)"
 
 def run():
     app.run(host='0.0.0.0', port=8080)
@@ -27,26 +26,45 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ====================
-# Configuración Discord
-# ====================
-TOKEN = os.getenv("TOKEN")  # o tu token directo si no usás .env
+# --------------------------
+# Configuración del bot
+# --------------------------
+TOKEN = os.getenv("TOKEN")  # o reemplazá con tu token directo
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.guilds = True
+intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# --------------------------
+# Restricción: solo en servidor RESONA TEMP. 2
+# --------------------------
+ALLOWED_GUILD_ID = 123456789012345678  # reemplazá con el ID real de tu server
+
+@bot.check
+async def globally_block_dms(ctx):
+    if ctx.guild is None:
+        return False
+    return ctx.guild.id == ALLOWED_GUILD_ID
+
+# --------------------------
+# Eventos y comandos
+# --------------------------
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
 
-# ====================
-# Ejecución
-# ====================
+@bot.command()
+async def ping(ctx):
+    await ctx.send("Pong!")
+
+# --------------------------
+# Iniciar bot
+# --------------------------
 keep_alive()
 bot.run(TOKEN)
-
 # Cargar variables del entorno
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -82,6 +100,7 @@ async def only_in_resona(ctx):
         await ctx.send("❌ Este bot solo está autorizado para usarse en el servidor **RESONA TEMP. 2**.")
         return False
     return True
+
 
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
@@ -787,6 +806,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
