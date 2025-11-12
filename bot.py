@@ -40,7 +40,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
-
+tree = app_commands.CommandTree(bot)
 # -------------------------
 # Eventos
 # -------------------------
@@ -66,7 +66,7 @@ async def on_ready():
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong! BETA 3.6")
+    await interaction.response.send_message("Pong! BETA 3.7")
 
 # -------------------------
 # Iniciar todo
