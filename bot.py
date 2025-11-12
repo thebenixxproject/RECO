@@ -653,7 +653,6 @@ class BlackjackView(discord.ui.View):
         self.session["player"].append(draw_from(deck, 1)[0])
         pval = hand_value(self.session["player"])
         if pval > 21:
-            # player bust
             self.stop()
             await self.resolve(interaction, busted=True)
             return
@@ -664,15 +663,24 @@ class BlackjackView(discord.ui.View):
         self.stop()
         await self.resolve(interaction, busted=False)
 
-    # 👇 Acá está bien indentada (afuera de "stand")
+    async def on_timeout(self):
+        self.stop()
+        try:
+            await self.message.edit(content="⏰ Se acabó el tiempo. El dealer gana por inactividad.", view=None)
+        except:
+            pass
+        blackjack_sessions.pop(self.uid, None)
+
     async def resolve(self, interaction: discord.Interaction, busted: bool):
         session = self.session
         deck = session["deck"]
+
         # dealer draw
         dval = hand_value(session["dealer"])
         while dval < 17:
             session["dealer"].append(draw_from(deck, 1)[0])
             dval = hand_value(session["dealer"])
+
         pval = hand_value(session["player"])
         bet = session["bet"]
         payout = 0
@@ -698,7 +706,6 @@ class BlackjackView(discord.ui.View):
         if payout > 0:
             await safe_add(session["uid"], payout)
 
-        # remove session
         blackjack_sessions.pop(session["uid"], None)
 
         embed = discord.Embed(title="🃏 Blackjack — Resultado", color=0x2F3136)
@@ -706,9 +713,8 @@ class BlackjackView(discord.ui.View):
         embed.add_field(name="Dealer", value=f"{' '.join(session['dealer'])} → {dval}", inline=True)
         embed.add_field(name="Nota", value=note, inline=False)
 
-        # Texto distinto según si ganó o perdió
         if payout > 0:
-            pago_texto = f"Recibiste **{fmt(int(payout))}** (incluye stake si aplica)"
+            pago_texto = f"Recibiste **{fmt(int(payout))}** (incluye apuesta si aplica)"
         else:
             pago_texto = f"💸 Perdiste **{fmt(int(bet))}** de tu apuesta"
 
@@ -717,58 +723,67 @@ class BlackjackView(discord.ui.View):
 
         try:
             await interaction.response.edit_message(embed=embed, view=None)
-        except Exception:
+        except:
             await interaction.channel.send(embed=embed)
+
 
 def embed_for_session(session):
     embed = discord.Embed(title="🃏 Blackjack", color=0x2F3136)
     embed.add_field(name="Jugador", value=f"{' '.join(session['player'])} → {hand_value(session['player'])}", inline=True)
     embed.add_field(name="Dealer", value=f"{session['dealer'][0]} ❓", inline=True)
     embed.add_field(name="Apuesta", value=f"{fmt(int(session['bet']))}", inline=False)
-    embed.set_footer(text="Usá Hit o Stand. Si no respondes, la mano finalizará.")
+    embed.set_footer(text="Usá Hit o Stand. Si no respondés en 60s, perdés la mano.")
     return embed
 
-@tree.command(name="blackjack", description="Juga blackjack vs dealer (interactivo). Min 100")
-@app_commands.describe(bet="Monto a apostar")
-async def blackjack(interaction: discord.Interaction, bet: int):
 
-        # 🟢 Si el usuario pone 'a', apostamos todo
+@tree.command(name="blackjack", description="Jugá blackjack vs dealer (interactivo). Min 100")
+@app_commands.describe(bet="Monto a apostar (número o 'a' para apostar todo)")
+async def blackjack(interaction: discord.Interaction, bet: str):
+    uid = str(interaction.user.id)
+    balance = balances.get(uid, 0)
+
+    # 🟢 Apuesta "a" = todo
     if bet.lower() == "a":
         bet = balance
     else:
         try:
-            bet = float(bet)
+            bet = int(bet)
         except ValueError:
             await interaction.response.send_message(
                 embed=discord.Embed(
                     title="❌ Apuesta inválida",
                     description="Usá un número o 'a' para apostar todo.",
                     color=discord.Color.red(),
-                )
+                ),
+                ephemeral=True
             )
             return
 
     if bet < MIN_BET:
         await interaction.response.send_message(embed=dark_embed("❌ Monto muy bajo", f"Mínimo: {MIN_BET}"), ephemeral=True)
         return
-    uid = str(interaction.user.id)
+
     async with balances_lock:
-        if balances.get(uid,0) < bet:
+        if balances.get(uid, 0) < bet:
             await interaction.response.send_message(embed=dark_embed("❌ Saldo insuficiente", "No tenés suficiente saldo."), ephemeral=True)
             return
         balances[uid] -= bet
         save_json(BALANCES_FILE, balances)
-    # create session
+
+    # Crear sesión
     deck = DECK.copy()
     random.shuffle(deck)
-    player = draw_from(deck,2)
-    dealer = draw_from(deck,2)
+    player = draw_from(deck, 2)
+    dealer = draw_from(deck, 2)
     session = {"uid": uid, "player": player, "dealer": dealer, "deck": deck, "bet": bet}
     blackjack_sessions[uid] = session
+
     view = BlackjackView(uid, session, timeout=60)
     embed = embed_for_session(session)
-    msg = await interaction.response.send_message(embed=embed, view=view)
-    # the view will handle the rest (resolve on timeout/hit/stand)
+
+    await interaction.response.send_message(embed=embed, view=view)
+    view.message = await interaction.original_response()
+
 
 # ---------- Crash (interactivo con cashout) ----------
 @tree.command(name="crash", description="Apostá y tratá de no crashear 💥")
