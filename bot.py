@@ -56,6 +56,7 @@ async def on_ready():
         print(f"🌍 {len(synced)} comandos sincronizados globalmente.")
     except Exception as e:
         print(f"❌ Error inesperado al sincronizar comandos: {e}")
+
 # -------------------------
 # Comando de prueba
 # -------------------------
@@ -67,7 +68,6 @@ async def ping(interaction: discord.Interaction):
 # Iniciar todo
 # -------------------------
 keep_alive()
-bot.run(TOKEN)
 
 # Cargar variables del entorno
 load_dotenv()
@@ -91,9 +91,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="/", intents=intents)
-tree = bot.tree
-
 @bot.check
 async def only_in_resona(ctx):
     if ctx.guild is None:
@@ -103,6 +100,7 @@ async def only_in_resona(ctx):
         await ctx.send("❌ Este bot solo está autorizado para usarse en el servidor **RESONA TEMP. 2**.")
         return False
     return True
+
 # ----------------- CONFIG -----------------
 from dotenv import load_dotenv
 load_dotenv()
@@ -119,9 +117,6 @@ SHARED_FILE = os.path.join(DATA_DIR, "sharedaccounts.json")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-
-bot = commands.Bot(command_prefix="/", intents=intents)
-tree = bot.tree
 
 # ----------------- UTIL / STORAGE -----------------
 balances_lock = asyncio.Lock()
@@ -807,13 +802,6 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
-
-
-
-
-
-
-
 
 
 
