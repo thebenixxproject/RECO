@@ -40,7 +40,6 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
-tree = app_commands.CommandTree(bot)
 # -------------------------
 # Eventos
 # -------------------------
@@ -964,3 +963,4 @@ if __name__ == "__main__":
     TOKEN = os.getenv("TOKEN")
     keep_alive()  # importante: antes del bot.run()
     bot.run(TOKEN)
+
