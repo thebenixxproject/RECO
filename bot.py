@@ -65,7 +65,7 @@ async def on_ready():
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong! BETA 3.7")
+    await interaction.response.send_message("Pong! BETA 3.8")
 
 # -------------------------
 # Iniciar todo
@@ -270,33 +270,55 @@ async def transfer(interaction: discord.Interaction, usuario: discord.User, cant
     embed = dark_embed("💸 Transferencia realizada", f"{interaction.user.mention} transfirió **{fmt(cantidad)}** a {usuario.mention}", 0x1ABC9C)
     await interaction.response.send_message(embed=embed)
 
-@tree.command(name="crime", description="Cometé un crimen... o intentá hacerlo 😈")
+from datetime import datetime, timedelta
+
+# diccionario para cooldowns de crime
+crime_cooldowns = {}
+
+@tree.command(name="crime", description="Intentá cometer un crimen y ganá o perdé dinero 💰")
 async def crime(interaction: discord.Interaction):
-    uid = str(interaction.user.id)
-    result = random.randint(1, 100)
-    if result <= 60:  # 60% de probabilidades de éxito
-        amount = random.randint(4000, 9999)
-        async with balances_lock:
-            balances[uid] = balances.get(uid, 0) + amount
-            save_json(BALANCES_FILE, balances)
+    user_id = str(interaction.user.id)
+    now = datetime.utcnow()
+
+    # Chequear cooldown
+    if user_id in crime_cooldowns and now < crime_cooldowns[user_id]:
+        remaining = (crime_cooldowns[user_id] - now).seconds
+        mins, secs = divmod(remaining, 60)
         embed = discord.Embed(
-            title="😈 Crimen exitoso",
-            description=f"Escapaste con **{fmt(amount)}** en efectivo 💵",
-            color=0x2ecc71
+            title="⏳ Esperá un poco",
+            description=f"Podés volver a intentar un crimen en **{mins}m {secs}s**.",
+            color=discord.Color.orange()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Registrar nuevo cooldown
+    crime_cooldowns[user_id] = now + timedelta(minutes=10)
+
+    balance = balances.get(user_id, 0)
+    outcome = random.choice(["success", "fail"])
+
+    if outcome == "success":
+        reward = random.randint(4000, 9999)
+        balances[user_id] = balance + reward
+        save_json(BALANCES_FILE, balances)
+        embed = discord.Embed(
+            title="💸 Crimen exitoso",
+            description=f"Escapaste sin ser visto y ganaste **{reward:,}** monedas.",
+            color=discord.Color.green()
         )
     else:
         loss = 2000
-        async with balances_lock:
-            balances[uid] = max(0, balances.get(uid, 0) - loss)
-            save_json(BALANCES_FILE, balances)
+        balances[user_id] = max(0, balance - loss)
+        save_json(BALANCES_FILE, balances)
         embed = discord.Embed(
-            title="🚔 Te atraparon!",
-            description=f"La policía te encontró y perdiste **{fmt(loss)}** 💸",
-            color=0xe74c3c
+            title="🚔 Te atraparon robando",
+            description=f"La policía te quitó **{loss:,}** monedas.",
+            color=discord.Color.red()
         )
+
     embed.set_footer(text="RECO • Casino")
     await interaction.response.send_message(embed=embed)
-
 
 # ----------------- SHARED ACCOUNTS (simple) -----------------
 @tree.command(name="sharedaccounts", description="Crear/ver/operar cuentas compartidas: create, deposit, withdraw, view")
@@ -963,4 +985,3 @@ if __name__ == "__main__":
     TOKEN = os.getenv("TOKEN")
     keep_alive()  # importante: antes del bot.run()
     bot.run(TOKEN)
-
