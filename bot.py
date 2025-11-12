@@ -66,7 +66,7 @@ async def on_ready():
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong! BETA 3.4")
+    await interaction.response.send_message("Pong! BETA 3.6")
 
 # -------------------------
 # Iniciar todo
@@ -271,32 +271,33 @@ async def transfer(interaction: discord.Interaction, usuario: discord.User, cant
     embed = dark_embed("💸 Transferencia realizada", f"{interaction.user.mention} transfirió **{fmt(cantidad)}** a {usuario.mention}", 0x1ABC9C)
     await interaction.response.send_message(embed=embed)
 
-@tree.command(name="crime", description="Cometé un crimen... o que te atrapen robando 👮‍♂️")
+@tree.command(name="crime", description="Cometé un crimen... o intentá hacerlo 😈")
 async def crime(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    balances = load_json(BALANCES_FILE)
-
-    # Asegurar que el usuario tenga saldo registrado
-    if user_id not in balances:
-        balances[user_id] = 0
-
-    # Determinar resultado
-    success = random.choice([True, False, False, True, True])  # 60% de ganar, 40% de perder
-
-    if success:
-        reward = random.randint(4000, 9999)
-        balances[user_id] += reward
-        save_json(BALANCES_FILE, balances)
-        await interaction.response.send_message(
-            f"💸 Robaste un banco y escapaste con **${reward}**! Sos un genio criminal 🏃‍♂️💨"
+    uid = str(interaction.user.id)
+    result = random.randint(1, 100)
+    if result <= 60:  # 60% de probabilidades de éxito
+        amount = random.randint(4000, 9999)
+        async with balances_lock:
+            balances[uid] = balances.get(uid, 0) + amount
+            save_json(BALANCES_FILE, balances)
+        embed = discord.Embed(
+            title="😈 Crimen exitoso",
+            description=f"Escapaste con **{fmt(amount)}** en efectivo 💵",
+            color=0x2ecc71
         )
     else:
-        penalty = 2000
-        balances[user_id] = max(0, balances[user_id] - penalty)
-        save_json(BALANCES_FILE, balances)
-        await interaction.response.send_message(
-            f"🚔 Te agarraron robando y pagaste **${penalty}** de multa. Mejor suerte la próxima..."
+        loss = 2000
+        async with balances_lock:
+            balances[uid] = max(0, balances.get(uid, 0) - loss)
+            save_json(BALANCES_FILE, balances)
+        embed = discord.Embed(
+            title="🚔 Te atraparon!",
+            description=f"La policía te encontró y perdiste **{fmt(loss)}** 💸",
+            color=0xe74c3c
         )
+    embed.set_footer(text="RECO • Casino")
+    await interaction.response.send_message(embed=embed)
+
 
 # ----------------- SHARED ACCOUNTS (simple) -----------------
 @tree.command(name="sharedaccounts", description="Crear/ver/operar cuentas compartidas: create, deposit, withdraw, view")
@@ -476,6 +477,23 @@ def hand_value(cards):
 @tree.command(name="roulette", description="Apostá a color (red/black/green) o número (0-36). Min 100.")
 @app_commands.describe(bet="Monto", choice="red | black | green | 0-36")
 async def roulette(interaction: discord.Interaction, bet: int, choice: str):
+
+        # 🟢 Si el usuario pone 'a', apostamos todo
+    if bet.lower() == "a":
+        bet = balance
+    else:
+        try:
+            bet = float(bet)
+        except ValueError:
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="❌ Apuesta inválida",
+                    description="Usá un número o 'a' para apostar todo.",
+                    color=discord.Color.red(),
+                )
+            )
+            return
+
     if bet < MIN_BET:
         await interaction.response.send_message(embed=dark_embed("❌ Monto muy bajo", f"Mínimo: {MIN_BET}"), ephemeral=True)
         return
@@ -514,6 +532,23 @@ async def roulette(interaction: discord.Interaction, bet: int, choice: str):
 @tree.command(name="russianroulette", description="1/6 de perder, si ganas cobrás x5. Min 100")
 @app_commands.describe(bet="Monto")
 async def russianroulette(interaction: discord.Interaction, bet: int):
+
+        # 🟢 Si el usuario pone 'a', apostamos todo
+    if bet.lower() == "a":
+        bet = balance
+    else:
+        try:
+            bet = float(bet)
+        except ValueError:
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="❌ Apuesta inválida",
+                    description="Usá un número o 'a' para apostar todo.",
+                    color=discord.Color.red(),
+                )
+            )
+            return
+
     if bet < MIN_BET:
         await interaction.response.send_message(embed=dark_embed("❌ Monto muy bajo", f"Mínimo: {MIN_BET}"), ephemeral=True)
         return
@@ -537,6 +572,23 @@ async def russianroulette(interaction: discord.Interaction, bet: int):
 @tree.command(name="slots", description="Jugá a las slots. Min 100")
 @app_commands.describe(bet="Monto")
 async def slots(interaction: discord.Interaction, bet: int):
+
+        # 🟢 Si el usuario pone 'a', apostamos todo
+    if bet.lower() == "a":
+        bet = balance
+    else:
+        try:
+            bet = float(bet)
+        except ValueError:
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="❌ Apuesta inválida",
+                    description="Usá un número o 'a' para apostar todo.",
+                    color=discord.Color.red(),
+                )
+            )
+            return
+
     if bet < MIN_BET:
         await interaction.response.send_message(embed=dark_embed("❌ Monto muy bajo", f"Mínimo: {MIN_BET}"), ephemeral=True)
         return
@@ -658,6 +710,23 @@ def embed_for_session(session):
 @tree.command(name="blackjack", description="Juga blackjack vs dealer (interactivo). Min 100")
 @app_commands.describe(bet="Monto a apostar")
 async def blackjack(interaction: discord.Interaction, bet: int):
+
+        # 🟢 Si el usuario pone 'a', apostamos todo
+    if bet.lower() == "a":
+        bet = balance
+    else:
+        try:
+            bet = float(bet)
+        except ValueError:
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="❌ Apuesta inválida",
+                    description="Usá un número o 'a' para apostar todo.",
+                    color=discord.Color.red(),
+                )
+            )
+            return
+
     if bet < MIN_BET:
         await interaction.response.send_message(embed=dark_embed("❌ Monto muy bajo", f"Mínimo: {MIN_BET}"), ephemeral=True)
         return
@@ -682,10 +751,26 @@ async def blackjack(interaction: discord.Interaction, bet: int):
 
 # ---------- Crash (interactivo con cashout) ----------
 @tree.command(name="crash", description="Apostá y tratá de no crashear 💥")
-@app_commands.describe(bet="Monto a apostar", target="Multiplicador que querés alcanzar (ej: 2.5)")
-async def crash(interaction: discord.Interaction, bet: float, target: float):
+@app_commands.describe(bet="Monto a apostar (o 'a' para todo)", target="Multiplicador que querés alcanzar (ej: 2.5)")
+async def crash(interaction: discord.Interaction, bet: str, target: float):
     user_id = str(interaction.user.id)
     balance = balances.get(user_id, 0)
+
+    # 🟢 Si el usuario pone 'a', apostamos todo
+    if bet.lower() == "a":
+        bet = balance
+    else:
+        try:
+            bet = float(bet)
+        except ValueError:
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="❌ Apuesta inválida",
+                    description="Usá un número o 'a' para apostar todo.",
+                    color=discord.Color.red(),
+                )
+            )
+            return
 
     if bet < 100:
         await interaction.response.send_message(embed=discord.Embed(
@@ -802,7 +887,7 @@ async def battle_start(interaction: discord.Interaction, min_players: int = 2, t
     embed.add_field(name="Ganador(es)", value=f"{win_names}\nCada uno ganó **{fmt(int(split))}**", inline=False)
     await interaction.channel.send(embed=embed)
     active_battles.pop(guild, None)
-
+#----------BATTLE JOIN----------
 @tree.command(name="battle_join", description="Unite a la batalla abierta")
 @app_commands.describe(amount="Apuesta")
 async def battle_join(interaction: discord.Interaction, amount: int):
@@ -823,7 +908,7 @@ async def battle_join(interaction: discord.Interaction, amount: int):
     active_battles[guild]["players"][uid] = {"amount": amount}
     active_battles[guild]["pot"] += amount
     await interaction.response.send_message(embed=dark_embed("🎴 Te uniste a la batalla", f"Apostaste **{fmt(amount)}**. Pot: **{fmt(int(active_battles[guild]['pot']))}**", 0x1ABC9C))
-
+#-------------------LEADERBOARD-------------------
 @tree.command(name="leaderboard", description="📊 Ver el top 10 de los jugadores más ricos del servidor")
 async def leaderboard(interaction: discord.Interaction):
     # Ordenar balances
@@ -860,17 +945,22 @@ async def on_ready():
     print(f"Comandos sincronizados. Bot listo como {bot.user}")
 
 # ----------------- RUN -----------------
-if __name__ == "__main__":
-    # asegurar que los archivos existan
-    save_json(BALANCES_FILE, balances)
-    save_json(SHARED_FILE, shared_accounts)
+def load_json(filename):
+    if os.path.exists(filename):
+        with open(filename, "r") as f:
+            return json.load(f)
+    return {}
 
-    from dotenv import load_dotenv
+def save_json(filename, data):
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=4)
+
+# cargar balances sin reiniciar
+balances = load_json(BALANCES_FILE)
+shared_accounts = load_json(SHARED_FILE)
+
+if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
-
     keep_alive()  # importante: antes del bot.run()
     bot.run(TOKEN)
-
-
-
