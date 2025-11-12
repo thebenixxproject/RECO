@@ -603,7 +603,12 @@ async def crypto(interaction: discord.Interaction, action: str, coin: Optional[s
         await interaction.response.send_message("❌ Acción inválida. Usá: status, buy o bought.", ephemeral=True)
 
 # -------------------- Loop de actualización --------------------
-bot.loop.create_task(update_crypto_prices())
+class MyBot(commands.Bot):
+    async def setup_hook(self):
+        self.loop.create_task(update_crypto_prices())
+
+bot = MyBot(command_prefix="/", intents=discord.Intents.all())
+
 # ----------------- CASINO GAMES -----------------
 # Helpers for cards
 CARD_VALUES = {
