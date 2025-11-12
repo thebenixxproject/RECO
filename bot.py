@@ -60,14 +60,12 @@ async def on_ready():
     guild = discord.Object(id=ALLOWED_GUILD_ID)
 
     try:
-        synced = await tree.sync(guild=guild)
-        print(f"🔁 {len(synced)} comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
-    except discord.errors.Forbidden:
-        print("⚠️ No tengo permisos para sincronizar en el servidor. Sincronizando globalmente...")
-        synced = await tree.sync()
-        print(f"🌍 {len(synced)} comandos sincronizados globalmente.")
+        # 🔥 Sincroniza todos los comandos SOLO en tu servidor
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+        print(f"🔁 Todos los comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
     except Exception as e:
-        print(f"❌ Error inesperado al sincronizar comandos: {e}")
+        print(f"❌ Error al sincronizar comandos: {e}")
 
 # -------------------------
 # Comando de prueba
@@ -253,6 +251,7 @@ async def setcoins(interaction: discord.Interaction, usuario: discord.User, cant
     embed = dark_embed("⚙️ Balance actualizado", f"{usuario.mention} ahora tiene **{fmt(cantidad)}** monedas.", 0x7289DA)
     embed.set_footer(text=f"Acción por {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
+    
 
 # ----------------- ECONOMY Y /CRIME -----------------
 @tree.command(name="transfer", description="Transferir monedas a otro usuario")
