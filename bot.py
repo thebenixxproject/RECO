@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 # -------------------------
 # Mantener vivo (Render)
 # -------------------------
+from flask import Flask
+from threading import Thread
+
 app = Flask(__name__)
 
 @app.route('/')
@@ -67,7 +70,6 @@ async def ping(interaction: discord.Interaction):
 # -------------------------
 # Iniciar todo
 # -------------------------
-keep_alive()
 
 # Cargar variables del entorno
 load_dotenv()
@@ -107,7 +109,7 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 DAILY_AMOUNT = 10000
 WORK_MIN = 1000
-WORK_MAX = 5000
+WORK_MAX = 2000
 DATA_DIR = "."  # deja "." para la carpeta actual
 
 BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
@@ -796,14 +798,13 @@ async def on_ready():
 
 # ----------------- RUN -----------------
 if __name__ == "__main__":
-    # ensure files exist
+    # asegurar que los archivos existan
     save_json(BALANCES_FILE, balances)
     save_json(SHARED_FILE, shared_accounts)
+
+    from dotenv import load_dotenv
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
+
+    keep_alive()  # importante: antes del bot.run()
     bot.run(TOKEN)
-
-
-
-
-
