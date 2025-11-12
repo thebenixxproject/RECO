@@ -52,22 +52,6 @@ bot = commands.Bot(
 tree = bot.tree
 
 # -------------------------
-# Evento de conexión
-# -------------------------
-@bot.event
-async def on_ready():
-    print(f"✅ Conectado como {bot.user}")
-    guild = discord.Object(id=ALLOWED_GUILD_ID)
-
-    try:
-        # 🔥 Sincroniza todos los comandos SOLO en tu servidor
-        bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-        print(f"🔁 Todos los comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
-    except Exception as e:
-        print(f"❌ Error al sincronizar comandos: {e}")
-
-# -------------------------
 # Comando de prueba
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
@@ -1118,6 +1102,21 @@ async def leaderboard(interaction: discord.Interaction):
 
     embed.set_footer(text="RECO • Ranking económico global")
     await interaction.response.send_message(embed=embed)
+# -------------------------
+# Evento de conexión
+# -------------------------
+@bot.event
+async def on_ready():
+    print(f"✅ Conectado como {bot.user}")
+    guild = discord.Object(id=ALLOWED_GUILD_ID)
+
+    try:
+        # 🔥 Sincroniza todos los comandos SOLO en tu servidor
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+        print(f"🔁 Todos los comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
+    except Exception as e:
+        print(f"❌ Error al sincronizar comandos: {e}")
 
 # ----------------- READY -----------------
 @bot.event
