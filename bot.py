@@ -66,7 +66,7 @@ async def on_ready():
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong!")
+    await interaction.response.send_message("Pong! BETA 3.4")
 
 # -------------------------
 # Iniciar todo
@@ -86,8 +86,31 @@ WORK_MIN = 1000
 WORK_MAX = 5000
 DATA_DIR = "."
 
+import os, json
+
+# Carpeta donde se guardan los datos
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Archivos
 BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
 SHARED_FILE = os.path.join(DATA_DIR, "sharedaccounts.json")
+
+# Funciones para leer y guardar
+def load_json(path, default=None):
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return default or {}
+
+def save_json(path, data):
+    with open(path, "w") as f:
+        json.dump(data, f, indent=4)
+
+# Cargar los datos existentes (o crear vacíos si no existen)
+balances = load_json(BALANCES_FILE, {})
+shared_accounts = load_json(SHARED_FILE, {})
+
 
 # ----------------- SETUP BOT -----------------
 intents = discord.Intents.default()
@@ -229,7 +252,7 @@ async def setcoins(interaction: discord.Interaction, usuario: discord.User, cant
     embed.set_footer(text=f"Acción por {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
 
-# ----------------- ECONOMY -----------------
+# ----------------- ECONOMY Y /CRIME -----------------
 @tree.command(name="transfer", description="Transferir monedas a otro usuario")
 @app_commands.describe(usuario="Usuario destino", cantidad="Monto")
 async def transfer(interaction: discord.Interaction, usuario: discord.User, cantidad: int):
@@ -247,6 +270,33 @@ async def transfer(interaction: discord.Interaction, usuario: discord.User, cant
         save_json(BALANCES_FILE, balances)
     embed = dark_embed("💸 Transferencia realizada", f"{interaction.user.mention} transfirió **{fmt(cantidad)}** a {usuario.mention}", 0x1ABC9C)
     await interaction.response.send_message(embed=embed)
+
+@tree.command(name="crime", description="Cometé un crimen... o que te atrapen robando 👮‍♂️")
+async def crime(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    balances = load_json(BALANCES_FILE)
+
+    # Asegurar que el usuario tenga saldo registrado
+    if user_id not in balances:
+        balances[user_id] = 0
+
+    # Determinar resultado
+    success = random.choice([True, False, False, True, True])  # 60% de ganar, 40% de perder
+
+    if success:
+        reward = random.randint(4000, 9999)
+        balances[user_id] += reward
+        save_json(BALANCES_FILE, balances)
+        await interaction.response.send_message(
+            f"💸 Robaste un banco y escapaste con **${reward}**! Sos un genio criminal 🏃‍♂️💨"
+        )
+    else:
+        penalty = 2000
+        balances[user_id] = max(0, balances[user_id] - penalty)
+        save_json(BALANCES_FILE, balances)
+        await interaction.response.send_message(
+            f"🚔 Te agarraron robando y pagaste **${penalty}** de multa. Mejor suerte la próxima..."
+        )
 
 # ----------------- SHARED ACCOUNTS (simple) -----------------
 @tree.command(name="sharedaccounts", description="Crear/ver/operar cuentas compartidas: create, deposit, withdraw, view")
@@ -391,7 +441,7 @@ async def profile(interaction: discord.Interaction, usuario: Optional[discord.Us
     bal = balances.get(uid, 0)
     embed = dark_embed(f"💼 Perfil — {u.display_name}", f"**💰 Balance:** {fmt(bal)}", 0x2F3136)
     embed.set_thumbnail(url=u.display_avatar.url)
-    embed.set_footer(text="ReCrypto • Economía del servidor")
+    embed.set_footer(text="RECO • Economía del servidor")
     await interaction.response.send_message(embed=embed)
 
 # ----------------- CASINO GAMES -----------------
@@ -527,7 +577,7 @@ class BlackjackView(discord.ui.View):
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
         deck = self.session["deck"]
-        self.session["player"].append(draw_from(deck,1)[0])
+        self.session["player"].append(draw_from(deck, 1)[0])
         pval = hand_value(self.session["player"])
         if pval > 21:
             # player bust
@@ -541,18 +591,20 @@ class BlackjackView(discord.ui.View):
         self.stop()
         await self.resolve(interaction, busted=False)
 
+    # 👇 Acá está bien indentada (afuera de "stand")
     async def resolve(self, interaction: discord.Interaction, busted: bool):
         session = self.session
         deck = session["deck"]
         # dealer draw
         dval = hand_value(session["dealer"])
         while dval < 17:
-            session["dealer"].append(draw_from(deck,1)[0])
+            session["dealer"].append(draw_from(deck, 1)[0])
             dval = hand_value(session["dealer"])
         pval = hand_value(session["player"])
         bet = session["bet"]
         payout = 0
         note = ""
+
         if busted:
             payout = 0
             note = "Te pasaste (bust). Perdiste."
@@ -569,20 +621,30 @@ class BlackjackView(discord.ui.View):
             else:
                 payout = 0
                 note = "Perdiste contra el dealer."
+
         if payout > 0:
             await safe_add(session["uid"], payout)
+
         # remove session
         blackjack_sessions.pop(session["uid"], None)
+
         embed = discord.Embed(title="🃏 Blackjack — Resultado", color=0x2F3136)
         embed.add_field(name="Jugador", value=f"{' '.join(session['player'])} → {pval}", inline=True)
         embed.add_field(name="Dealer", value=f"{' '.join(session['dealer'])} → {dval}", inline=True)
         embed.add_field(name="Nota", value=note, inline=False)
-        embed.add_field(name="Pago", value=f"Recibiste **{fmt(int(payout))}** (incluye stake si aplica)", inline=False)
-        embed.set_footer(text="ReCrypto • Casino")
+
+        # Texto distinto según si ganó o perdió
+        if payout > 0:
+            pago_texto = f"Recibiste **{fmt(int(payout))}** (incluye stake si aplica)"
+        else:
+            pago_texto = f"💸 Perdiste **{fmt(int(bet))}** de tu apuesta"
+
+        embed.add_field(name="Pago", value=pago_texto, inline=False)
+        embed.set_footer(text="RECO • Casino")
+
         try:
             await interaction.response.edit_message(embed=embed, view=None)
-        except:
-            # fallback send
+        except Exception:
             await interaction.channel.send(embed=embed)
 
 def embed_for_session(session):
@@ -686,7 +748,7 @@ async def crash(interaction: discord.Interaction, bet: float, target: float):
             color=discord.Color.red()
         )
 
-    result.set_footer(text="ReCrypto • Casino")
+    result.set_footer(text="RECO • Casino")
     await msg.edit(embed=result)
 
 # ---------- Battles (High Card) ----------
@@ -771,7 +833,7 @@ async def leaderboard(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🏆 Top 10 Jugadores Más Ricos",
         color=discord.Color.dark_gold(),
-        description="💰 *Los más poderosos del casino ReCrypto...*"
+        description="💰 *Los más poderosos del casino RECO...*"
     )
 
     for i, (user_id, coins) in enumerate(top, start=1):
@@ -788,7 +850,7 @@ async def leaderboard(interaction: discord.Interaction):
             inline=False
         )
 
-    embed.set_footer(text="ReCrypto • Ranking económico global")
+    embed.set_footer(text="RECO • Ranking económico global")
     await interaction.response.send_message(embed=embed)
 
 # ----------------- READY -----------------
@@ -809,4 +871,6 @@ if __name__ == "__main__":
 
     keep_alive()  # importante: antes del bot.run()
     bot.run(TOKEN)
+
+
 
