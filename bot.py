@@ -56,7 +56,7 @@ tree = bot.tree
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🏓 Pong! BETA 4")
+    await interaction.response.send_message("🏓 Pong! BETA 4.7")
 
 # -------------------------
 # Variables generales del bot
@@ -1134,6 +1134,17 @@ def load_json(filename):
 def save_json(filename, data):
     with open(filename, "w") as f:
         json.dump(data, f, indent=4)
+@bot.event
+async def on_ready():
+    print(f"✅ Conectado como {bot.user}")
+    guild = discord.Object(id=ALLOWED_GUILD_ID)
+
+    try:
+        bot.tree.copy_global_to(guild=guild)  # 👈 fuerza copia al servidor
+        await bot.tree.sync(guild=guild)      # 👈 sincroniza solo ahí
+        print(f"🔁 Comandos sincronizados en {ALLOWED_GUILD_ID}.")
+    except Exception as e:
+        print(f"❌ Error al sincronizar comandos: {e}")
 
 # cargar balances sin reiniciar
 balances = load_json(BALANCES_FILE)
