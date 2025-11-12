@@ -42,19 +42,20 @@ tree = bot.tree
 # -------------------------
 @bot.event
 async def on_ready():
+    print(f"✅ Conectado como {bot.user}")
     guild = discord.Object(id=ALLOWED_GUILD_ID)
+
     try:
+        # Intentar sincronizar comandos en el servidor específico
         synced = await tree.sync(guild=guild)
         print(f"🔁 {len(synced)} comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
+    except discord.errors.Forbidden:
+        # Si no tiene permiso, sincroniza globalmente
+        print("⚠️ No tengo permisos para sincronizar en el servidor. Sincronizando globalmente...")
+        synced = await tree.sync()
+        print(f"🌍 {len(synced)} comandos sincronizados globalmente.")
     except Exception as e:
-        print(f"⚠️ Error al sincronizar comandos: {e}")
-
-    print(f"✅ Bot listo como {bot.user}")
-@bot.event
-async def on_ready():
-    guild = discord.Object(id=ALLOWED_GUILD_ID)
-    await tree.sync(guild=guild)
-    print(f"✅ {bot.user} conectado y comandos sincronizados.")
+        print(f"❌ Error inesperado al sincronizar comandos: {e}")
 # -------------------------
 # Comando de prueba
 # -------------------------
@@ -806,6 +807,7 @@ if __name__ == "__main__":
     load_dotenv()
     TOKEN = os.getenv("TOKEN")
     bot.run(TOKEN)
+
 
 
 
