@@ -1,19 +1,22 @@
-from flask import Flask
+# -------------------------
+# Importaciones
+# -------------------------
+import os
+import json
+import random
+import asyncio
+from datetime import datetime
 from threading import Thread
+from dotenv import load_dotenv
+from flask import Flask
 import discord
 from discord.ext import commands
 from discord import app_commands
-import os, json, asyncio, random
-from datetime import datetime
-from dotenv import load_dotenv
 from typing import Optional
 
 # -------------------------
 # Mantener vivo (Render)
 # -------------------------
-from flask import Flask
-from threading import Thread
-
 app = Flask(__name__)
 
 @app.route('/')
@@ -28,20 +31,28 @@ def keep_alive():
     t.start()
 
 # -------------------------
-# Configuración
+# Configuración inicial
 # -------------------------
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
-ALLOWED_GUILD_ID = 1437214142779097323
+APPLICATION_ID = int(os.getenv("APPLICATION_ID"))  # 👈 importante
+ALLOWED_GUILD_ID = 1437214142779097323  # ID de tu servidor
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="/", intents=intents)
+# Crear bot con application_id ✅
+bot = commands.Bot(
+    command_prefix="/",
+    intents=intents,
+    application_id=APPLICATION_ID
+)
+
 tree = bot.tree
+
 # -------------------------
-# Eventos
+# Evento de conexión
 # -------------------------
 @bot.event
 async def on_ready():
@@ -49,11 +60,9 @@ async def on_ready():
     guild = discord.Object(id=ALLOWED_GUILD_ID)
 
     try:
-        # Intentar sincronizar comandos en el servidor específico
         synced = await tree.sync(guild=guild)
         print(f"🔁 {len(synced)} comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
     except discord.errors.Forbidden:
-        # Si no tiene permiso, sincroniza globalmente
         print("⚠️ No tengo permisos para sincronizar en el servidor. Sincronizando globalmente...")
         synced = await tree.sync()
         print(f"🌍 {len(synced)} comandos sincronizados globalmente.")
@@ -65,29 +74,16 @@ async def on_ready():
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong! BETA 4")
+    await interaction.response.send_message("🏓 Pong! BETA 4")
 
 # -------------------------
-# Iniciar todo
+# Variables generales del bot
 # -------------------------
-
-# Cargar variables del entorno
-load_dotenv()
-TOKEN = os.getenv("TOKEN")
-
-# Configuración
 MIN_BET = 10
 MAX_BET = 1000000000000
-ALLOWED_GUILD_ID = 1437214142779097323  # ✅ ID del servidor RESONA TEMP. 2
-
 DAILY_AMOUNT = 10000
 WORK_MIN = 1000
 WORK_MAX = 5000
-DATA_DIR = "."
-
-import os, json
-
-# Carpeta donde se guardan los datos
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -95,7 +91,9 @@ os.makedirs(DATA_DIR, exist_ok=True)
 BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
 SHARED_FILE = os.path.join(DATA_DIR, "sharedaccounts.json")
 
-# Funciones para leer y guardar
+# -------------------------
+# Funciones para guardar/cargar datos
+# -------------------------
 def load_json(path, default=None):
     if os.path.exists(path):
         with open(path, "r") as f:
@@ -106,10 +104,15 @@ def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=4)
 
-# Cargar los datos existentes (o crear vacíos si no existen)
 balances = load_json(BALANCES_FILE, {})
 shared_accounts = load_json(SHARED_FILE, {})
 
+# -------------------------
+# Iniciar el bot
+# -------------------------
+if __name__ == "__main__":
+    keep_alive()
+    bot.run(TOKEN)
 
 # ----------------- SETUP BOT -----------------
 intents = discord.Intents.default()
