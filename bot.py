@@ -6,6 +6,7 @@ from discord import app_commands
 import os, json, asyncio, random
 from datetime import datetime
 from dotenv import load_dotenv
+from typing import Optional
 
 # -------------------------
 # Mantener vivo (Render)
@@ -808,3 +809,4 @@ if __name__ == "__main__":
 
     keep_alive()  # importante: antes del bot.run()
     bot.run(TOKEN)
+
