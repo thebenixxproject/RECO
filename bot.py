@@ -50,6 +50,20 @@ bot = commands.Bot(
 )
 
 tree = bot.tree
+# -------------------------
+# Evento on_ready para sincronizar comandos
+# -------------------------
+@bot.event
+async def on_ready():
+    print(f"✅ Bot conectado como {bot.user}")
+
+    try:
+        guild = discord.Object(id=ALLOWED_GUILD_ID)
+        bot.tree.copy_global_to(guild=guild)
+        cmds = await bot.tree.sync(guild=guild)
+        print(f"✅ {len(cmds)} comandos sincronizados en el servidor {ALLOWED_GUILD_ID}")
+    except Exception as e:
+        print(f"❌ Error al sincronizar comandos: {e}")
 
 # -------------------------
 # Comando de prueba
@@ -1102,23 +1116,6 @@ async def leaderboard(interaction: discord.Interaction):
 
     embed.set_footer(text="RECO • Ranking económico global")
     await interaction.response.send_message(embed=embed)
-# -------------------------
-# Evento de conexión
-# -------------------------
-@bot.event
-async def on_ready():
-    print(f"✅ Bot conectado como {bot.user}")
-
-    try:
-        guild = discord.Object(id=ALLOWED_GUILD_ID)
-
-        # 🔧 Fuerza sincronización local al servidor (instantáneo)
-        bot.tree.copy_global_to(guild=guild)
-        cmds = await bot.tree.sync(guild=guild)
-
-        print(f"✅ {len(cmds)} comandos sincronizados en el servidor {ALLOWED_GUILD_ID}")
-    except Exception as e:
-        print(f"❌ Error al sincronizar comandos: {e}")
 
 # ----------------- READY -----------------
 @bot.event
