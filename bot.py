@@ -56,7 +56,7 @@ tree = bot.tree
 # -------------------------
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🏓 Pong! BETA 4.7")
+    await interaction.response.send_message("🏓 Pong! BETA 4.8")
 
 # -------------------------
 # Variables generales del bot
@@ -1107,14 +1107,16 @@ async def leaderboard(interaction: discord.Interaction):
 # -------------------------
 @bot.event
 async def on_ready():
-    print(f"✅ Conectado como {bot.user}")
-    guild = discord.Object(id=ALLOWED_GUILD_ID)
+    print(f"✅ Bot conectado como {bot.user}")
 
     try:
-        # 🔥 Sincroniza todos los comandos SOLO en tu servidor
+        guild = discord.Object(id=ALLOWED_GUILD_ID)
+
+        # 🔧 Fuerza sincronización local al servidor (instantáneo)
         bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-        print(f"🔁 Todos los comandos sincronizados en el servidor {ALLOWED_GUILD_ID}.")
+        cmds = await bot.tree.sync(guild=guild)
+
+        print(f"✅ {len(cmds)} comandos sincronizados en el servidor {ALLOWED_GUILD_ID}")
     except Exception as e:
         print(f"❌ Error al sincronizar comandos: {e}")
 
