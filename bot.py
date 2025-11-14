@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("🏓 Pong! BETA 5.2" \
+    await interaction.followup.send("🏓 Pong! BETA 5.5" \
     "")
 
 
@@ -881,45 +881,92 @@ async def blackjack(interaction: discord.Interaction, bet: str):
     except:
         view.message = None
 
-# ---------- Crash (interactivo) ----------
-@tree.command(name="crash", description="Apostá y tratá de no crashear 💥")
-@app_commands.describe(bet="Monto o 'a' para todo", target="Multiplicador (ej: 2.5)")
-async def crash(interaction: discord.Interaction, bet: str, target: float):
-    if not await ensure_guild_or_reply(interaction):
-        return
+# ---------- Crash interactivo con botón ----------
+class CashoutButton(discord.ui.View):
+    def __init__(self, user_id):
+        super().__init__(timeout=0)
+        self.user_id = user_id
+        self.cashout_pressed = False
+
+    @discord.ui.button(label="💸 CASHOUT", style=discord.ButtonStyle.green)
+    async def cashout(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("❌ Este crash no es tuyo.", ephemeral=True)
+
+        self.cashout_pressed = True
+        await interaction.response.defer()
+
+
+@tree.command(name="crash", description="Apostá y tratá de no crashear 💥 (interactivo)")
+@app_commands.describe(bet="Monto o 'a' para todo")
+async def crash(interaction: discord.Interaction, bet: str):
+
+    # Validaciones
     parsed = await parse_bet(interaction, bet, min_bet=100)
     if parsed is None:
-        await interaction.response.send_message("❌ Apuesta inválida (min 100 o 'a')", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Apuesta inválida.", ephemeral=True)
+
     bet_val = float(parsed)
     uid = str(interaction.user.id)
-    if bet_val < 100:
-        await interaction.response.send_message("❌ Apuesta mínima 100", ephemeral=True)
-        return
+
     async with balances_lock:
         if balances.get(uid, 0) < bet_val:
-            await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
-            return
+            return await interaction.response.send_message("❌ No tenés saldo suficiente.", ephemeral=True)
+
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
-    # crash simulation
-    crash_point = round(random.uniform(1.0, random.uniform(2.0, 10.0)), 2)
-    await interaction.response.send_message("🚀 Crash en progreso...")
+
+    # Generar crash point "realista"
+    roll = random.random()
+
+    if roll < 0.70:
+        crash_point = round(random.uniform(1.30, 2.20), 2)
+    elif roll < 0.95:
+        crash_point = round(random.uniform(2.20, 3.50), 2)
+    elif roll < 0.995:
+        crash_point = round(random.uniform(3.50, 5.00), 2)
+    else:
+        crash_point = round(random.uniform(5.00, 25.0), 2)
+
+    # Vista interactiva (botón)
+    view = CashoutButton(interaction.user.id)
+
+    await interaction.response.send_message(
+        f"🚀 **Crash iniciado!** Apuesta: {fmt(int(bet_val))}\nPulsa *CASHOUT* cuando quieras.",
+        view=view
+    )
     msg = await interaction.original_response()
-    multiplier = 1.0
-    while multiplier < crash_point:
+
+    # Bucle de multiplicador
+    multiplier = 1.00
+    alive = True
+
+    while alive:
         await asyncio.sleep(0.6)
-        multiplier = round(multiplier + random.uniform(0.1, 0.3), 2)
+
+        # Aumentar multiplicador suavemente
+        multiplier = round(multiplier + random.uniform(0.10, 0.30), 2)
+
+        # Si el usuario cashouteó
+        if view.cashout_pressed:
+            payout = bet_val * multiplier
+            await safe_add(uid, payout)
+            await msg.edit(content=f"💸 **CASHOUT!** x{multiplier}\nGanaste **{fmt(int(payout))}**", view=None)
+            return
+
+        # Crashear si supera el crash_point
+        if multiplier >= crash_point:
+            alive = False
+            break
+
+        # Actualizar mensaje
         try:
-            await msg.edit(content=f"🚀 x{multiplier}")
+            await msg.edit(content=f"🚀 x{multiplier}", view=view)
         except:
             pass
-    if crash_point >= target:
-        payout = bet_val * target
-        await safe_add(uid, payout)
-        await msg.edit(content=f"💎 Ganaste! Crash x{crash_point} — Cobraste {fmt(int(payout))}")
-    else:
-        await msg.edit(content=f"💥 Perdiste. Crash x{crash_point} antes de x{target} — Perdiste {fmt(int(bet_val))}")
+
+    # Crash final
+    await msg.edit(content=f"💥 **CRASH!** x{crash_point}\nPerdiste {fmt(int(bet_val))}", view=None)
 
 # ---------- Battles, leaderboard etc (mantener tal como tenías) ----------
 #leaderboard
