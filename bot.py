@@ -150,7 +150,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("🏓 Pong! BETA 5 21:35")
+    await interaction.followup.send("🏓 Pong! BETA 5.2")
 
 
 # -------------------------
@@ -786,3 +786,4 @@ if __name__ == "__main__":
         print("❌ TOKEN no encontrado en variables de entorno")
     else:
         bot.run(TOKEN)
+
