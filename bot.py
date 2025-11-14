@@ -44,7 +44,7 @@ if APPLICATION_ID is not None:
     except:
         APPLICATION_ID = None
 
-ALLOWED_GUILD_ID = 1437214142779097323  # ID de tu servidor
+ALLOWED_GUILD_ID = 1414328901584551949  # ID de tu servidor
 
 # -------------------------
 # Archivos / datos
@@ -150,7 +150,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("🏓 Pong! BETA 5 21:19")
+    await interaction.followup.send("🏓 Pong! BETA 5 21:35")
 
 
 # -------------------------
