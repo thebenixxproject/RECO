@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("🏓 Pong! BETA 5.5" \
+    await interaction.followup.send("🏓 Pong! BETA 5.6" \
     "")
 
 
