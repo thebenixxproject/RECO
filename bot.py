@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("Gay el que lee. BETA 5.7" \
+    await interaction.followup.send("Lucas es gay. BETA 5.8" \
     "")
 
 
@@ -612,27 +612,59 @@ async def killcrypto(interaction: discord.Interaction, user: discord.User, coin:
 
     await interaction.response.send_message(embed=embed)
 #---------------setprice crypto---------------------
-@tree.command(name="setprice", description="Cambiar el precio de una crypto (ADMIN)")
-@app_commands.describe(coin="Nombre de la crypto", price="Nuevo precio")
-async def setprice(interaction: discord.Interaction, coin: str, price: float):
+@tree.command(name="setpricecrypto", description="(Admin) Establecer el precio de una crypto")
+@app_commands.describe(coin="Criptomoneda (RSC/CTC/MMC)", price="Nuevo precio (ej: 123.45)")
+async def setpricecrypto(interaction: discord.Interaction, coin: str, price: float):
+    # Validar guild y permisos
+    if not await ensure_guild_or_reply(interaction):
+        return
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ No tenés permisos.", ephemeral=True)
-        return
+        return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
 
+    # Validar precio
+    try:
+        price = float(price)
+        if price <= 0:
+            raise ValueError()
+    except:
+        return await interaction.response.send_message("❌ Precio inválido. Debe ser un número mayor a 0.", ephemeral=True)
+
+    # Cargar cryptos desde archivo (no confiar en variable global sola)
     cryptos = load_json(CRYPTO_FILE, {})
+    if not cryptos:
+        return await interaction.response.send_message("❌ Archivo de cryptos vacío o inexistente.", ephemeral=True)
 
-    if coin not in cryptos:
-        await interaction.response.send_message("❌ Esa crypto no existe.", ephemeral=True)
-        return
+    sym = coin.upper()
+    if sym not in cryptos or not isinstance(cryptos[sym], dict) or "price" not in cryptos[sym]:
+        return await interaction.response.send_message(f"❌ La crypto **{coin}** no existe.", ephemeral=True)
 
-    cryptos[coin]["price"] = price
-    cryptos[coin]["history"].append(price)
+    # Actualizar precio e historial
+    cryptos[sym]["price"] = round(price, 2)
+    hist = cryptos[sym].setdefault("history", [])
+    hist.append(round(price, 2))
 
-    save_json(CRYPTO_FILE, cryptos)
+    # Limitar history a 288 puntos (24h @ 5min)
+    MAX_HISTORY = 288
+    if len(hist) > MAX_HISTORY:
+        cryptos[sym]["history"] = hist[-MAX_HISTORY:]
 
-    await interaction.response.send_message(
-        f"💹 Precio de **{coin}** actualizado a **{price}**."
+    # Guardar
+    try:
+        save_json(CRYPTO_FILE, cryptos)
+    except Exception as e:
+        return await interaction.response.send_message(f"⚠️ Error al guardar: `{e}`", ephemeral=True)
+
+    # Respuesta con embed
+    embed = discord.Embed(
+        title="💹 Precio actualizado",
+        description=f"Se actualizó el precio de **{sym}**",
+        color=discord.Color.green()
     )
+    embed.add_field(name="Nuevo precio", value=f"{cryptos[sym]['price']:,}", inline=True)
+    embed.add_field(name="Puntos en historial", value=str(len(cryptos[sym].get("history", []))), inline=True)
+    embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
+
+    await interaction.response.send_message(embed=embed)
 #-------------------------
 # Casino helpers: cards, deck
 # -------------------------
@@ -722,31 +754,6 @@ async def roulette(interaction: discord.Interaction, bet: str, choice: str):
     else:
         await interaction.response.send_message(f"🎡 Resultado: {wheel} ({color}). Perdiste **{fmt(int(bet_val))}**")
 
-# ---------- Russian roulette ----------
-@tree.command(name="russianroulette", description="1/6 de perder, si ganas cobrás x5. Min 10")
-@app_commands.describe(bet="Monto o 'a' para todo")
-async def russianroulette(interaction: discord.Interaction, bet: str):
-    if not await ensure_guild_or_reply(interaction):
-        return
-    parsed = await parse_bet(interaction, bet)
-    if parsed is None:
-        await interaction.response.send_message(f"❌ Apuesta inválida (min {MIN_BET})", ephemeral=True)
-        return
-    bet_val = int(parsed)
-    uid = str(interaction.user.id)
-    async with balances_lock:
-        if balances.get(uid, 0) < bet_val:
-            await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
-            return
-        balances[uid] -= bet_val
-        save_json(BALANCES_FILE, balances)
-    chamber = random.randint(1,6)
-    if chamber == 1:
-        await interaction.response.send_message(f"💀 Perdiste **{fmt(bet_val)}**")
-    else:
-        payout = bet_val * 5
-        await safe_add(uid, payout)
-        await interaction.response.send_message(f"🔫 Ganaste: cobraste **{fmt(int(payout))}**")
 
 # ---------- Slots ----------
 @tree.command(name="slots", description="Jugá a las slots. Min 10")
