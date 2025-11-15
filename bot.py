@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("🏓 Pong! BETA 5.6" \
+    await interaction.followup.send("Gay el que lee. BETA 5.7" \
     "")
 
 
@@ -611,6 +611,28 @@ async def killcrypto(interaction: discord.Interaction, user: discord.User, coin:
     embed.set_footer(text="RECO • Crypto Admin")
 
     await interaction.response.send_message(embed=embed)
+#---------------setprice crypto---------------------
+@tree.command(name="setprice", description="Cambiar el precio de una crypto (ADMIN)")
+@app_commands.describe(coin="Nombre de la crypto", price="Nuevo precio")
+async def setprice(interaction: discord.Interaction, coin: str, price: float):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ No tenés permisos.", ephemeral=True)
+        return
+
+    cryptos = load_json(CRYPTO_FILE, {})
+
+    if coin not in cryptos:
+        await interaction.response.send_message("❌ Esa crypto no existe.", ephemeral=True)
+        return
+
+    cryptos[coin]["price"] = price
+    cryptos[coin]["history"].append(price)
+
+    save_json(CRYPTO_FILE, cryptos)
+
+    await interaction.response.send_message(
+        f"💹 Precio de **{coin}** actualizado a **{price}**."
+    )
 #-------------------------
 # Casino helpers: cards, deck
 # -------------------------
@@ -880,158 +902,33 @@ async def blackjack(interaction: discord.Interaction, bet: str):
         view.message = await interaction.original_response()
     except:
         view.message = None
-
-# ---------- Crash interactivo con botón ----------
-class CashoutButton(discord.ui.View):
-    def __init__(self, user_id):
-        super().__init__(timeout=0)
-        self.user_id = user_id
-        self.cashout_pressed = False
-
-    @discord.ui.button(label="💸 CASHOUT", style=discord.ButtonStyle.green)
-    async def cashout(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user_id:
-            return await interaction.response.send_message("❌ Este crash no es tuyo.", ephemeral=True)
-
-        self.cashout_pressed = True
-        await interaction.response.defer()
-
-
-@tree.command(name="crash", description="Apostá y tratá de no crashear 💥 (interactivo)")
-@app_commands.describe(bet="Monto o 'a' para todo")
-async def crash(interaction: discord.Interaction, bet: str):
-
-    # Validaciones
-    parsed = await parse_bet(interaction, bet, min_bet=100)
-    if parsed is None:
-        return await interaction.response.send_message("❌ Apuesta inválida.", ephemeral=True)
-
-    bet_val = float(parsed)
-    uid = str(interaction.user.id)
-
-    async with balances_lock:
-        if balances.get(uid, 0) < bet_val:
-            return await interaction.response.send_message("❌ No tenés saldo suficiente.", ephemeral=True)
-
-        balances[uid] -= bet_val
-        save_json(BALANCES_FILE, balances)
-
-    # Generar crash point "realista"
-    roll = random.random()
-
-    if roll < 0.70:
-        crash_point = round(random.uniform(1.30, 2.20), 2)
-    elif roll < 0.95:
-        crash_point = round(random.uniform(2.20, 3.50), 2)
-    elif roll < 0.995:
-        crash_point = round(random.uniform(3.50, 5.00), 2)
-    else:
-        crash_point = round(random.uniform(5.00, 25.0), 2)
-
-    # Vista interactiva (botón)
-    view = CashoutButton(interaction.user.id)
-
-    await interaction.response.send_message(
-        f"🚀 **Crash iniciado!** Apuesta: {fmt(int(bet_val))}\nPulsa *CASHOUT* cuando quieras.",
-        view=view
-    )
-    msg = await interaction.original_response()
-
-    # Bucle de multiplicador
-    multiplier = 1.00
-    alive = True
-
-    while alive:
-        await asyncio.sleep(0.6)
-
-        # Aumentar multiplicador suavemente
-        multiplier = round(multiplier + random.uniform(0.10, 0.30), 2)
-
-        # Si el usuario cashouteó
-        if view.cashout_pressed:
-            payout = bet_val * multiplier
-            await safe_add(uid, payout)
-            await msg.edit(content=f"💸 **CASHOUT!** x{multiplier}\nGanaste **{fmt(int(payout))}**", view=None)
-            return
-
-        # Crashear si supera el crash_point
-        if multiplier >= crash_point:
-            alive = False
-            break
-
-        # Actualizar mensaje
-        try:
-            await msg.edit(content=f"🚀 x{multiplier}", view=view)
-        except:
-            pass
-
-    # Crash final
-    await msg.edit(content=f"💥 **CRASH!** x{crash_point}\nPerdiste {fmt(int(bet_val))}", view=None)
-
 # ---------- Battles, leaderboard etc (mantener tal como tenías) ----------
 #leaderboard
 #leaderboard
-@tree.command(name="leaderboard", description="📊 Ver el top 10 de los jugadores más ricos del servidor")
+@tree.command(name="leaderboard", description="Mirá el top de los jugadores con más dinero 💰")
 async def leaderboard(interaction: discord.Interaction):
-
-    # Validación por si balances no existe o está vacío
-    global balances
-    if not balances or len(balances) == 0:
-        await interaction.response.send_message(
-            "❌ No hay datos suficientes para mostrar el leaderboard.",
-            ephemeral=True
-        )
+    if not await ensure_guild_or_reply(interaction):
         return
 
-    # Ordenar balances (user_id → coins)
-    try:
-        sorted_balances = sorted(
-            ((uid, coins) for uid, coins in balances.items() if isinstance(coins, (int, float))),
-            key=lambda x: x[1],
-            reverse=True
-        )
-    except Exception as e:
-        await interaction.response.send_message(
-            f"⚠️ Error al ordenar leaderboard: `{e}`",
-            ephemeral=True
-        )
+    # leer balances
+    balances = load_json(BALANCES_FILE, {})
+
+    if not balances:
+        await interaction.response.send_message("😔 No hay datos todavía.", ephemeral=True)
         return
 
-    # Top 10
-    top = sorted_balances[:10]
+    # ordenar TOP 10
+    top = sorted(balances.items(), key=lambda x: x[1], reverse=True)[:10]
 
-    embed = discord.Embed(
-        title="🏆 Top 10 Jugadores Más Ricos",
-        color=discord.Color.dark_gold(),
-        description="💰 *Los más poderosos del casino RECO...*"
-    )
+    msg = "🏆 **Leaderboard - Top 10** 🏆\n\n"
+    pos = 1
+    for uid, money in top:
+        user = await interaction.guild.fetch_member(int(uid)) if str(uid).isdigit() else None
+        name = user.display_name if user else f"User {uid}"
+        msg += f"**#{pos}** — {name}: `{fmt(int(money))}`\n"
+        pos += 1
 
-    for i, (user_id, coins) in enumerate(top, start=1):
-
-        # Intentar obtener nombre de usuario
-        try:
-            user = await interaction.client.fetch_user(int(user_id))
-            name = user.display_name
-        except:
-            name = f"Usuario desconocido ({user_id})"
-
-        # Medallas
-        medal = (
-            "🥇" if i == 1 else
-            "🥈" if i == 2 else
-            "🥉" if i == 3 else
-            "💸"
-        )
-
-        embed.add_field(
-            name=f"{medal} {i}. {name}",
-            value=f"**{coins:,.0f} monedas**",
-            inline=False
-        )
-
-    embed.set_footer(text="RECO • Ranking económico global")
-
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(msg)
 
 # (Mantén tus comandos battle_start, battle_join, leaderboard, etc.)
 # ... (si quieres que los revise/limpie los agrego también)
