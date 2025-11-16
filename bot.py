@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("batman me chupa la verga entera y me gustan los menores. BETA 6" \
+    await interaction.followup.send("eu es god poder poner cualquier mensaje que yo quiera aca tipo puedo poner hola me gusta la verga y anda igual entendes es como god y no tengo limite de caracteres toma discord nitro chupala no voy a pagarte una chota esto es muchisimo mas divertido. BETA 6.1" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -943,29 +943,238 @@ async def addbox(interaction: discord.Interaction, user: discord.User, regalo: s
         f"✅ Regalo agregado a **{user.display_name}**: `{regalo}`"
     )
 
+# ============================
+import unicodedata
 
-# =========================
-#    /transfergiftbox
-# =========================
+# -------------------------
+# Helpers para gifts
+# -------------------------
+def normalize(text: str) -> str:
+    """
+    Normaliza texto: quita tildes, pasa a minúsculas y limpia espacios.
+    Esto ayuda a hacer matches flexibles (ej: 'LEÓN' -> 'leon').
+    """
+    if not isinstance(text, str):
+        return ""
+    text = text.strip().lower()
+    # quitar acentos
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return text
 
+def get_gifts(uid: str) -> list:
+    """
+    Devuelve la lista de regalos del usuario (copiada).
+    Siempre devuelve lista (vacía si no tiene).
+    """
+    data = load_gifts()  # usa tu función existente
+    lst = data.get(str(uid), [])
+    # asegurarse de devolver una copia y strings
+    return [str(x) for x in lst]
+
+# -------------------------
+# /transfergiftbox (actualizado)
+# -------------------------
 @tree.command(name="transfergiftbox", description="Transferir un regalo a otro jugador")
-@app_commands.describe(user="Usuario destino", regalo="Texto exacto del regalo")
+@app_commands.describe(user="Usuario destino", regalo="Nombre del regalo (puede ser aproximado)")
 async def transfergiftbox(interaction: discord.Interaction, user: discord.User, regalo: str):
 
     sender = str(interaction.user.id)
     receiver = str(user.id)
 
     if sender == receiver:
-        return await interaction.response.send_message("❌ No podés transferirte a vos mismo.", ephemeral=True)
+        return await interaction.response.send_message("❌ No podés transferirte regalos a vos mismo.", ephemeral=True)
 
-    if not remove_gift(sender, regalo):
-        return await interaction.response.send_message("❌ No tenés ese regalo.", ephemeral=True)
+    # Obtener lista de regalos del remitente
+    gifts_sender = get_gifts(sender)
+    if not gifts_sender:
+        return await interaction.response.send_message("❌ No tenés regalos para transferir.", ephemeral=True)
 
-    add_gift(receiver, regalo)
+    # Normalizar entrada
+    entrada_norm = normalize(regalo)
+
+    # Construir lookup normalizado -> original (prioriza coincidencia exacta)
+    lookup = {}
+    for g in gifts_sender:
+        lookup[normalize(g)] = g
+
+    elegido = None
+
+    # 1) buscar coincidencia exacta normalizada
+    if entrada_norm in lookup:
+        elegido = lookup[entrada_norm]
+    else:
+        # 2) buscar coincidencia por substring (primero en originales normalizados)
+        for k_norm, original in lookup.items():
+            if entrada_norm in k_norm or k_norm in entrada_norm:
+                elegido = original
+                break
+
+    if elegido is None:
+        # 3) intentar coincidencia parcial más laxa (palabras)
+        entrada_tokens = entrada_norm.split()
+        for k_norm, original in lookup.items():
+            for t in entrada_tokens:
+                if t and t in k_norm:
+                    elegido = original
+                    break
+            if elegido:
+                break
+
+    if elegido is None:
+        # Construir lista corta de los primeros 8 regalos para ayudar al usuario
+        sample = gifts_sender[:8]
+        sample_txt = ", ".join(sample)
+        return await interaction.response.send_message(
+            f"❌ No encontré ningún regalo parecido a **{regalo}** en tu inventario.\n"
+            f"Ejemplos de lo que tenés: {sample_txt}",
+            ephemeral=True
+        )
+
+    # Remover del que envía
+    ok = remove_gift(sender, elegido)
+    if not ok:
+        return await interaction.response.send_message("❌ Error al quitar el regalo de tu inventario.", ephemeral=True)
+
+    # Agregar al receptor
+    add_gift(receiver, elegido)
 
     await interaction.response.send_message(
-        f"📦 Transferencia completa!\n\n**{regalo}** → enviado a **{user.display_name}**"
+        f"📦 **Transferencia completa!**\n\n"
+        f"Regalo enviado: **{elegido}**\n"
+        f"Para: **{user.display_name}**"
     )
+# ============================
+# Juego: Encontrá la Piedra (/find)
+# ============================
+
+@tree.command(name="find", description="Encontrá la piedra bajo 1 de los 5 vasos 🎲")
+@app_commands.describe(bet="Cantidad a apostar o 'a' para todo")
+async def find(interaction: discord.Interaction, bet: str):
+
+    if not await ensure_guild_or_reply(interaction):
+        return
+
+    uid = str(interaction.user.id)
+
+    # ---------------- APUESTA ----------------
+    parsed = await parse_bet(interaction, bet)
+    if parsed is None:
+        return await interaction.response.send_message(
+            f"❌ Apuesta inválida. Mínimo {MIN_BET}.",
+            ephemeral=True
+        )
+
+    bet_val = int(parsed)
+
+    async with balances_lock:
+        if balances.get(uid, 0) < bet_val:
+            return await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
+
+        balances[uid] -= bet_val
+        save_json(BALANCES_FILE, balances)
+
+    # ---------------- JUEGO ----------------
+
+    # Vaso correcto (1-5)
+    correct = random.randint(1, 5)
+
+    # Vasos iniciales
+    vasos = ["🔵", "🔵", "🔵", "🔵", "🔵"]
+
+    embed = discord.Embed(
+        title="🥤 Encuentra la Piedra",
+        description="Una piedra fue escondida bajo **1 de 5 vasos**.\nElegí con cuidado...",
+        color=0x3498db
+    )
+    embed.add_field(name="Vasos", value="🔵 🔵 🔵 🔵 🔵", inline=False)
+    embed.add_field(name="Apuesta", value=fmt(bet_val), inline=False)
+
+    view = FindView(uid, bet_val, correct)
+    await interaction.response.send_message(embed=embed, view=view)
+    view.message = await interaction.original_response()
+
+
+# ---------------------------------------
+# VIEW INTERACTIVA PARA ELEGIR EL VASO
+# ---------------------------------------
+
+class FindView(discord.ui.View):
+    def __init__(self, uid, bet, correct):
+        super().__init__(timeout=20)
+        self.uid = uid
+        self.bet = bet
+        self.correct = correct
+        self.message = None
+
+    async def interaction_check(self, interaction):
+        return str(interaction.user.id) == self.uid
+
+    async def on_timeout(self):
+        try:
+            await self.message.edit(content="⏰ Tiempo agotado.", view=None)
+        except:
+            pass
+
+    # 5 BOTONES
+    @discord.ui.button(label="1", style=discord.ButtonStyle.primary)
+    async def b1(self, i, b):
+        await self.reveal(i, 1)
+
+    @discord.ui.button(label="2", style=discord.ButtonStyle.primary)
+    async def b2(self, i, b):
+        await self.reveal(i, 2)
+
+    @discord.ui.button(label="3", style=discord.ButtonStyle.primary)
+    async def b3(self, i, b):
+        await self.reveal(i, 3)
+
+    @discord.ui.button(label="4", style=discord.ButtonStyle.primary)
+    async def b4(self, i, b):
+        await self.reveal(i, 4)
+
+    @discord.ui.button(label="5", style=discord.ButtonStyle.primary)
+    async def b5(self, i, b):
+        await self.reveal(i, 5)
+
+    # ---------------- RESULTADO ----------------
+
+    async def reveal(self, interaction, chosen):
+        self.stop()
+
+        vasos = ["🔵", "🔵", "🔵", "🔵", "🔵"]
+
+        # piedra aparece donde realmente estaba
+        vasos[self.correct - 1] = "🪨"
+
+        acierto = (chosen == self.correct)
+
+        if acierto:
+            ganancia = self.bet * 2
+            await safe_add(self.uid, ganancia)  # devolver al usuario
+
+            note = f"🎉 **¡Encontraste la piedra!** Ganaste **{fmt(ganancia)}**"
+            color = 0x2ecc71
+
+        else:
+            note = f"💸 Elegiste el vaso {chosen}, pero la piedra estaba en el {self.correct}. Perdiste la apuesta."
+            color = 0xe74c3c
+
+        embed = discord.Embed(
+            title="🥤 Resultado — Encuentra la Piedra",
+            description=note,
+            color=color
+        )
+
+        embed.add_field(name="Vasos", value=" ".join(vasos), inline=False)
+        embed.add_field(name="Elegiste", value=str(chosen), inline=True)
+        embed.add_field(name="Correcto", value=str(self.correct), inline=True)
+        embed.set_footer(text="RECO • Minijuegos")
+
+        try:
+            await interaction.response.edit_message(embed=embed, view=None)
+        except:
+            await interaction.channel.send(embed=embed)
 #-------------------------
 # Casino helpers: cards, deck
 # -------------------------
