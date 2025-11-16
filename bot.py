@@ -4,7 +4,7 @@ import json
 import random
 import asyncio
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from threading import Thread
 from typing import Optional
 try:
@@ -163,9 +163,63 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("Lucas es gay. BETA 5.8" \
+    await interaction.followup.send("batman me chupa la verga entera y me gustan los menores. BETA 6" \
     "")
 
+#---------------eso de las boxes y gifts------------
+GIFTS_FILE = os.path.join(DATA_DIR, "gifts.json")
+
+def load_gifts():
+    return load_json(GIFTS_FILE, {})
+
+def save_gifts(data):
+    save_json(GIFTS_FILE, data)
+
+def add_gift(uid, gift):
+    data = load_gifts()
+    user = data.setdefault(uid, [])
+    user.append(gift)
+    save_gifts(data)
+
+def remove_gift(uid, gift):
+    data = load_gifts()
+    if uid in data and gift in data[uid]:
+        data[uid].remove(gift)
+        save_gifts(data)
+        return True
+    return False
+#--------------------buffs------------------------
+BUFFS_FILE = os.path.join(DATA_DIR, "buffs.json")
+
+def load_buffs():
+    data = load_json(BUFFS_FILE, {})
+    return data
+
+def save_buffs(data):
+    save_json(BUFFS_FILE, data)
+
+def apply_buff(uid, buff_name, duration_seconds):
+    data = load_buffs()
+    expiry = time.time() + duration_seconds
+    if uid not in data:
+        data[uid] = {}
+    data[uid][buff_name] = expiry
+    save_buffs(data)
+    return expiry
+
+def has_buff(uid, buff_name):
+    data = load_buffs()
+    if uid not in data:
+        return False
+    expiry = data[uid].get(buff_name)
+    if not expiry:
+        return False
+    if time.time() > expiry:
+        # expiró
+        del data[uid][buff_name]
+        save_buffs(data)
+        return False
+    return True
 
 # -------------------------
 # Parámetros generales
@@ -665,6 +719,253 @@ async def setpricecrypto(interaction: discord.Interaction, coin: str, price: flo
     embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
 
     await interaction.response.send_message(embed=embed)
+# =========================
+#        SYSTEM: BOXES
+# =========================
+
+#─── Config Boxes ───────────────────────────────────────────────
+BOXES = {
+    "normal": {
+        "price": 30000,
+        "rewards": [
+            ("Gallina", 50),
+            ("Piedra – 30 CTC", 25),
+            ("León – 40.000 monedas", 15),
+            ("Tortuga – 40% OFF (compra +40 niveles)", 10),
+        ]
+    },
+    "rara": {
+        "price": 60000,
+        "rewards": [
+            ("Toilet – 3 tickets + 15 MMC", 40),
+            ("Bombero – Cupón Rol + 20.000", 30),
+            ("Mujer – x2 suerte Blackjack (70% ganancia)", 20),
+            ("Limón – Crear Crypto + 40.000", 10),
+        ]
+    },
+    "crazy": {
+        "price": 100000,
+        "rewards": [
+            ("Mango – 80 niveles + 90.000", 30),
+            ("Foca – Romper 2 reglas + 50.000 + 30 CTC", 30),
+            ("Círculo Violeta – HoF + 60.000", 35),
+            ("Barra de Oro – 150.000 + x4 Crypto + Rol + Timeout 1h + 100 niveles", 5),
+        ]
+    }
+}
+
+# =========================
+#     GIFTS SYSTEM
+# =========================
+
+GIFTS_FILE = os.path.join(DATA_DIR, "gifts.json")
+
+def load_gifts():
+    return load_json(GIFTS_FILE, {})
+
+def save_gifts(data):
+    save_json(GIFTS_FILE, data)
+
+def add_gift(uid, gift_name):
+    data = load_gifts()
+    if uid not in data:
+        data[uid] = []
+    data[uid].append(gift_name)
+    save_gifts(data)
+
+def remove_gift(uid, gift_name):
+    data = load_gifts()
+    if uid not in data:
+        return False
+    if gift_name not in data[uid]:
+        return False
+    data[uid].remove(gift_name)
+    save_gifts(data)
+    return True
+
+def has_gift(uid, gift_name):
+    data = load_gifts()
+    user = data.get(uid, [])
+    return any(gift_name.lower() in g.lower() for g in user)
+
+
+# =========================
+#       BUFF SYSTEM
+# =========================
+
+BUFF_FILE = os.path.join(DATA_DIR, "buffs.json")
+
+def load_buffs():
+    return load_json(BUFF_FILE, {})
+
+def save_buffs(data):
+    save_json(BUFF_FILE, data)
+
+def apply_buff(uid, buff_name, seconds):
+    data = load_buffs()
+    now = int(time.time())
+    expiry = now + seconds
+
+    if uid not in data:
+        data[uid] = {}
+
+    data[uid][buff_name] = expiry
+    save_buffs(data)
+    return expiry
+
+def has_buff(uid, buff_name):
+    data = load_buffs()
+    now = int(time.time())
+
+    if uid not in data:
+        return False
+    if buff_name not in data[uid]:
+        return False
+
+    if data[uid][buff_name] < now:
+        del data[uid][buff_name]
+        save_buffs(data)
+        return False
+
+    return True
+
+def buff_time_left(uid, buff_name):
+    data = load_buffs()
+    now = int(time.time())
+
+    if uid not in data or buff_name not in data[uid]:
+        return 0
+
+    return max(data[uid][buff_name] - now, 0)
+
+
+# =========================
+#          /boxes
+# =========================
+
+@tree.command(name="boxes", description="Comprar y abrir cajas misteriosas 🎁")
+@app_commands.describe(tipo="normal, rara o crazy")
+async def boxes(interaction: discord.Interaction, tipo: str):
+
+    tipo = tipo.lower()
+
+    if tipo not in BOXES:
+        return await interaction.response.send_message(
+            "❌ Tipo inválido: normal / rara / crazy",
+            ephemeral=True
+        )
+
+    uid = str(interaction.user.id)
+    caja = BOXES[tipo]
+    precio = caja["price"]
+
+    # Descontar monedas
+    async with balances_lock:
+        saldo = balances.get(uid, 0)
+        if saldo < precio:
+            return await interaction.response.send_message(
+                f"❌ Necesitás {precio:,} monedas.",
+                ephemeral=True
+            )
+        balances[uid] -= precio
+        save_json(BALANCES_FILE, balances)
+
+    # Selección probabilística
+    items = [r[0] for r in caja["rewards"]]
+    probs = [r[1] for r in caja["rewards"]]
+
+    premio = random.choices(items, probs)[0]
+
+    # -------------------------
+    #   CASO ESPECIAL: GALLINA
+    # -------------------------
+    if premio == "Gallina":
+        apply_buff(uid, "Gallina", 600)  # 10 minutos
+        return await interaction.response.send_message(
+            "🐔 **Gallina conseguida!**\n"
+            "Durante **10 minutos** obtenés **+1.25x** en TODAS tus ganancias.",
+        )
+
+    # Guardar premio en inventario
+    add_gift(uid, premio)
+
+    embed = discord.Embed(
+        title="🎁 Caja Misteriosa Abierta!",
+        description=f"Tipo: **{tipo.upper()}**",
+        color=discord.Color.gold()
+    )
+
+    embed.add_field(name="🎉 Ganaste:", value=f"**{premio}**", inline=False)
+    embed.set_footer(text=f"Costó {precio:,} monedas")
+
+    await interaction.response.send_message(embed=embed)
+
+
+# =========================
+#       /seegifts
+# =========================
+
+@tree.command(name="seegifts", description="Ver tus cupones y regalos 🎁")
+async def seegifts(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
+    inv = load_gifts().get(uid, [])
+
+    if not inv:
+        return await interaction.response.send_message(
+            "📭 No tenés regalos todavía.",
+            ephemeral=True
+        )
+
+    embed = discord.Embed(
+        title="🎁 Tu inventario de regalos",
+        color=discord.Color.purple()
+    )
+
+    embed.add_field(name="Regalos:", value="\n".join([f"• {g}" for g in inv]), inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+# =========================
+#       /addbox
+# =========================
+
+@tree.command(name="addbox", description="(Admin) Agregar un regalo manualmente a un usuario")
+@app_commands.describe(user="Usuario", regalo="Texto exacto del regalo")
+async def addbox(interaction: discord.Interaction, user: discord.User, regalo: str):
+
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("❌ Solo admins.", ephemeral=True)
+
+    uid = str(user.id)
+    add_gift(uid, regalo)
+
+    await interaction.response.send_message(
+        f"✅ Regalo agregado a **{user.display_name}**: `{regalo}`"
+    )
+
+
+# =========================
+#    /transfergiftbox
+# =========================
+
+@tree.command(name="transfergiftbox", description="Transferir un regalo a otro jugador")
+@app_commands.describe(user="Usuario destino", regalo="Texto exacto del regalo")
+async def transfergiftbox(interaction: discord.Interaction, user: discord.User, regalo: str):
+
+    sender = str(interaction.user.id)
+    receiver = str(user.id)
+
+    if sender == receiver:
+        return await interaction.response.send_message("❌ No podés transferirte a vos mismo.", ephemeral=True)
+
+    if not remove_gift(sender, regalo):
+        return await interaction.response.send_message("❌ No tenés ese regalo.", ephemeral=True)
+
+    add_gift(receiver, regalo)
+
+    await interaction.response.send_message(
+        f"📦 Transferencia completa!\n\n**{regalo}** → enviado a **{user.display_name}**"
+    )
 #-------------------------
 # Casino helpers: cards, deck
 # -------------------------
@@ -786,9 +1087,16 @@ async def slots(interaction: discord.Interaction, bet: str):
     else:
         await interaction.response.send_message(f"🎰 {' | '.join(res)} — Perdiste **{fmt(int(bet_val))}**")
 
-# ---------- Blackjack (interactivo) ----------
+# ==========================
+#    BLACKJACK COMPLETO
+# ==========================
+
 blackjack_sessions: dict[str, dict] = {}
 
+
+# ------------------------------
+#      VIEW INTERACTIVA
+# ------------------------------
 class BlackjackView(discord.ui.View):
     def __init__(self, uid, session, timeout=60):
         super().__init__(timeout=timeout)
@@ -799,112 +1107,221 @@ class BlackjackView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return str(interaction.user.id) == self.uid
 
+    # ---- BOTÓN HIT ----
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
         deck = self.session["deck"]
+
         self.session["player"].append(draw_from(deck, 1)[0])
         pval = hand_value(self.session["player"])
+
         if pval > 21:
             self.stop()
             await self.resolve(interaction, busted=True)
             return
+
         await interaction.response.edit_message(embed=embed_for_session(self.session), view=self)
 
+    # ---- BOTÓN STAND ----
     @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary)
     async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
         await self.resolve(interaction, busted=False)
 
+    # ---- TIMEOUT ----
     async def on_timeout(self):
-        # Inactividad -> cancelar y devolver nothing (apuesta perdida)
         blackjack_sessions.pop(self.uid, None)
         try:
             await self.message.edit(content="⏰ Tiempo agotado. Mano finalizada.", view=None)
         except:
             pass
 
+    # -----------------------------------
+    #         RESOLVER LA MANO
+    # -----------------------------------
     async def resolve(self, interaction: discord.Interaction, busted: bool):
         session = self.session
-        deck = session["deck"]
-        # dealer draw
-        dval = hand_value(session["dealer"])
-        while dval < 17:
-            session["dealer"].append(draw_from(deck, 1)[0])
-            dval = hand_value(session["dealer"])
-        pval = hand_value(session["player"])
+        uid = session["uid"]
         bet = session["bet"]
-        payout = 0
-        note = ""
+
+        deck = session["deck"]
+
+        # detectar buff Mujer → funciona con contains
+        tiene_mujer = has_gift(uid, "Mujer")
+
+        # --- Si el jugador se pasó ---
         if busted:
             payout = 0
             note = "Te pasaste (bust). Perdiste."
+            pval = hand_value(session["player"])
+            dval = hand_value(session["dealer"])
         else:
+            # ----------------------------------
+            #     JUEGA EL DEALER (reglas reales)
+            # ----------------------------------
+            pval = hand_value(session["player"])
+            dval = hand_value(session["dealer"])
+
+            # Si el jugador tiene blackjack natural, dealer no juega
+            if not (pval == 21 and len(session["player"]) == 2):
+                while dval < 17:
+                    session["dealer"].append(draw_from(deck, 1)[0])
+                    dval = hand_value(session["dealer"])
+
+            payout = 0
+            empate = False
+            gana = False
+
+            # ---- BLACKJACK NATURAL ----
             if pval == 21 and len(session["player"]) == 2:
+                gana = True
                 payout = int(bet * 2.5)
-                note = "Blackjack! Cobraste 1.5x de ganancia."
+                note = "Blackjack natural! Ganancia 1.5x."
+            # ---- CASO GANAR ----
             elif dval > 21 or pval > dval:
+                gana = True
                 payout = int(bet * 2)
                 note = "Ganaste contra el dealer."
+            # ---- EMPATE ----
             elif pval == dval:
+                empate = True
                 payout = bet
-                note = "Empate. Se devolvió la apuesta."
+                note = "Empate. Se devolvió tu apuesta."
+            # ---- PERDER ----
             else:
+                gana = False
                 payout = 0
                 note = "Perdiste contra el dealer."
+
+            # ------------------------------------------------------------
+            #                    BUFF MUJER APLICADO
+            # ------------------------------------------------------------
+            if tiene_mujer and not busted and not empate:
+                # ➤ Caso ganar naturalmente
+                if gana:
+                    payout = int(payout * 0.70)
+                    note += " **(Buff Mujer: pago reducido al 70%)**"
+
+                # ➤ Caso perder → chance de convertir derrota
+                else:
+                    # 35% de chance de salvarte
+                    if random.random() < 0.35:
+                        gana = True
+                        payout = int(bet * 2 * 0.70)
+                        note = "🔥 Buff Mujer activado! La suerte te salvó (pago 70%)."
+
+        # ------------------------------------
+        #       Aplicar pago al jugador
+        # ------------------------------------
         if payout > 0:
-            await safe_add(session["uid"], payout)
-        blackjack_sessions.pop(session["uid"], None)
-        embed = discord.Embed(title="🃏 Blackjack — Resultado", color=0x2F3136)
-        embed.add_field(name="Jugador", value=f"{' '.join(session['player'])} → {pval}", inline=True)
-        embed.add_field(name="Dealer", value=f"{' '.join(session['dealer'])} → {dval}", inline=True)
+            await safe_add(uid, payout)
+
+        blackjack_sessions.pop(uid, None)
+
+        # ---------------------------
+        #   Embed final del resultado
+        # ---------------------------
+        embed = discord.Embed(
+            title="🃏 Blackjack — Resultado",
+            color=0x2F3136
+        )
+
+        # Mostrar manos completas
+        embed.add_field(
+            name="Jugador",
+            value=f"{' '.join(session['player'])} → {pval}",
+            inline=True
+        )
+        embed.add_field(
+            name="Dealer",
+            value=f"{' '.join(session['dealer'])} → {dval}",
+            inline=True
+        )
+
         embed.add_field(name="Nota", value=note, inline=False)
+
         if payout > 0:
-            pago_texto = f"Recibiste **{fmt(int(payout))}** (incluye apuesta si aplica)"
+            embed.add_field(name="Pago", value=f"Recibiste **{fmt(payout)}**", inline=False)
         else:
-            pago_texto = f"💸 Perdiste **{fmt(int(bet))}** de tu apuesta"
-        embed.add_field(name="Pago", value=pago_texto, inline=False)
+            embed.add_field(name="Pago", value=f"💸 Perdiste **{fmt(bet)}**", inline=False)
+
         embed.set_footer(text="RECO • Casino")
+
+        # respuesta segura
         try:
             await interaction.response.edit_message(embed=embed, view=None)
         except:
             await interaction.channel.send(embed=embed)
 
+
+# --------------------------------------
+#    EMBED EN MEDIO DE LA PARTIDA
+# --------------------------------------
 def embed_for_session(session):
     embed = discord.Embed(title="🃏 Blackjack", color=0x2F3136)
-    embed.add_field(name="Jugador", value=f"{' '.join(session['player'])} → {hand_value(session['player'])}", inline=True)
-    embed.add_field(name="Dealer", value=f"{session['dealer'][0]} ❓", inline=True)
+
+    p_hand = " ".join(session["player"])
+    p_val = hand_value(session["player"])
+
+    d_card = session["dealer"][0]
+
+    embed.add_field(name="Jugador", value=f"{p_hand} → {p_val}", inline=True)
+    embed.add_field(name="Dealer", value=f"{d_card} ❓", inline=True)
     embed.add_field(name="Apuesta", value=f"{fmt(int(session['bet']))}", inline=False)
+
     embed.set_footer(text="Usá Hit o Stand. Si no respondés en 60s, perdés la mano.")
     return embed
 
+
+# --------------------------------------
+#           COMANDO /blackjack
+# --------------------------------------
 @tree.command(name="blackjack", description="Jugá blackjack vs dealer (interactivo). Min 10")
 @app_commands.describe(bet="Monto o 'a' para todo")
 async def blackjack(interaction: discord.Interaction, bet: str):
+
     if not await ensure_guild_or_reply(interaction):
         return
+
     uid = str(interaction.user.id)
     parsed = await parse_bet(interaction, bet)
+
     if parsed is None:
         await interaction.response.send_message(f"❌ Apuesta inválida (min {MIN_BET} o 'a')", ephemeral=True)
         return
+
     bet_val = int(parsed)
+
+    # Descontar apuesta
     async with balances_lock:
         if balances.get(uid, 0) < bet_val:
             await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
             return
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
-    # iniciar mano
+
+    # Preparar mano
     deck = DECK.copy()
     random.shuffle(deck)
+
     player = draw_from(deck, 2)
     dealer = draw_from(deck, 2)
-    session = {"uid": uid, "player": player, "dealer": dealer, "deck": deck, "bet": bet_val}
+
+    session = {
+        "uid": uid,
+        "player": player,
+        "dealer": dealer,
+        "deck": deck,
+        "bet": bet_val
+    }
     blackjack_sessions[uid] = session
+
     view = BlackjackView(uid, session, timeout=60)
     embed = embed_for_session(session)
+
     await interaction.response.send_message(embed=embed, view=view)
-    # obtener referencia al mensaje para on_timeout
+
+    # Guardar el mensaje para manejar timeout
     try:
         view.message = await interaction.original_response()
     except:
