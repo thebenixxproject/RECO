@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("eu es god poder poner cualquier mensaje que yo quiera aca tipo puedo poner hola me gusta la verga y anda igual entendes es como god y no tengo limite de caracteres toma discord nitro chupala no voy a pagarte una chota esto es muchisimo mas divertido. BETA 6.1" \
+    await interaction.followup.send("dickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdick BETA 6.2" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -517,6 +517,22 @@ async def crypto(interaction: discord.Interaction, action: str, coin: str = None
         if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
             await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
             return
+        
+        if isinstance(quantity, str) and quantity.lower() == "a":
+            async with balances_lock:
+                saldo = balances.get(uid, 0)
+
+        if saldo <= 0:
+            return await interaction.response.send_message("❌ No tenés monedas.", ephemeral=True)
+
+        # cantidad máxima de crypto que se puede comprar
+        quantity = round(saldo / price, 6)
+
+        if quantity <= 0:
+            return await interaction.response.send_message(
+                "❌ No alcanza para comprar ni la mínima fracción.",
+                ephemeral=True
+            )
         if quantity is None or quantity <= 0:
             await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
             return
