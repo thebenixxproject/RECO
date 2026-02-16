@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("dickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdickdick BETA 6.2" \
+    await interaction.followup.send("RECO 1. ME GUSTAN LAS MENORES HOLA SOY EL MEJOR DE LA HISTORIA ESTOY ORGULLOSO DE PODER PONER TEXTO ACÁ HOLA AHORA VOY A SPAMEAR HOLA MIREN HOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLAHOLA" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -1595,4 +1595,5 @@ if __name__ == "__main__":
         print("❌ TOKEN no encontrado en variables de entorno")
     else:
         bot.run(TOKEN)
+
 
