@@ -1858,3 +1858,4 @@ if __name__ == "__main__":
         print("❌ TOKEN no encontrado en variables de entorno")
     else:
         bot.run(TOKEN)
+
