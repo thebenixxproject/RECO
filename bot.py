@@ -163,7 +163,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("el que me dice cuantos puntos hay aca le doy 67 millones de monedas...................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................." \
+    await interaction.followup.send("reco 1.2 jajajajaja decime cuantos puntos hay aca y te doy 67 trillones de monedas........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................." \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -427,33 +427,15 @@ def invest_time_left(uid):
     cooldown = 3 * 60 * 60  # 3 horas
     remaining = (last + cooldown) - now
     return max(0, remaining)
-# ----------------------------- /invest ---------------------------------
+# ============================
+# /invest — Invertir en empresas
+# ============================
+INVEST_COOLDOWN = 60 * 60 * 3  # 3 horas
 
-def resolve_invest():
-    chances = [
-        (None, 40),
-        (0.08, 20),
-        (0.15, 15),
-        (0.25, 12),
-        (0.40, 8),
-        (0.75, 5),
-    ]
-
-    roll = random.randint(1, 100)
-    acc = 0
-
-    for result, weight in chances:
-        acc += weight
-        if roll <= acc:
-            return result
-
-    return None
-
-
-@tree.command(name="invest", description="Invertí en una empresa 📈")
+@tree.command(name="invest", description="Invertí en una empresa (cada 3 horas)")
 @app_commands.describe(
-    empresa="Empresa en la que invertir",
-    cantidad="Cantidad de monedas a invertir"
+    empresa="Apple | RESONA | PHub | Reservas X",
+    cantidad="Cantidad a invertir"
 )
 async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
 
@@ -462,10 +444,8 @@ async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
 
     uid = str(interaction.user.id)
 
-    empresas_validas = ("APPLE", "RESONA", "PHUB", "RESERVAS X")
-    empresa = empresa.upper()
-
-    if empresa not in empresas_validas:
+    empresas_validas = ["apple", "resona", "phub", "reservas x"]
+    if empresa.lower() not in empresas_validas:
         return await interaction.response.send_message(
             "❌ Empresa inválida.",
             ephemeral=True
@@ -477,117 +457,172 @@ async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
             ephemeral=True
         )
 
+    # --- cooldown ---
+    now = int(time.time())
+    cooldowns = load_json("invest_cd.json", {})
+    last = cooldowns.get(uid, 0)
+
+    if now - last < INVEST_COOLDOWN:
+        remaining = INVEST_COOLDOWN - (now - last)
+        horas = remaining // 3600
+        minutos = (remaining % 3600) // 60
+        return await interaction.response.send_message(
+            f"⏳ Ya invertiste recientemente.\nVolvé en **{horas}h {minutos}m**.",
+            ephemeral=True
+        )
+
     async with balances_lock:
-        if balances.get(uid, 0) < cantidad:
+        saldo = balances.get(uid, 0)
+        if saldo < cantidad:
             return await interaction.response.send_message(
                 "❌ No tenés saldo suficiente.",
                 ephemeral=True
             )
-
         balances[uid] -= cantidad
         save_json(BALANCES_FILE, balances)
 
-    result = resolve_invest()
+    cooldowns[uid] = now
+    save_json("invest_cd.json", cooldowns)
 
-    if result is None:
-        return await interaction.response.send_message(
-            f"📉 Invertiste **{fmt(cantidad)}** en {empresa} y perdiste todo."
+    # ============================
+    # RESULTADO
+    # ============================
+
+    win = random.random() < 0.45  # 45% win
+
+    if not win:
+        embed = discord.Embed(
+            title=f"📉 Inversión en {empresa}",
+            description=f"❌ La inversión salió mal.\nPerdiste **{fmt(cantidad)}** monedas.",
+            color=0xe74c3c
         )
+        return await interaction.response.send_message(embed=embed)
 
-    profit = int(cantidad * result)
-    total = cantidad + profit
+    # Distribución de profits (más alto = menos probabilidad)
+    # 8% chance de 99%
+    # resto distribuido decreciente
+
+    roll = random.random()
+
+    if roll < 0.08:
+        profit_percent = 99
+    else:
+        # entre 10% y 80% pero con peso hacia valores bajos
+        profit_percent = int(random.triangular(10, 80, 15))
+
+    ganancia = int(cantidad * (profit_percent / 100))
+    total = cantidad + ganancia
 
     await safe_add(uid, total)
 
-    await interaction.response.send_message(
-        f"📈 Invertiste en **{empresa}**\n"
-        f"Rendimiento: **+{int(result*100)}%**\n"
-        f"Ganancia: **{fmt(profit)}**"
+    embed = discord.Embed(
+        title=f"📈 Inversión en {empresa}",
+        description=(
+            f"✅ La empresa explotó en bolsa!\n\n"
+            f"📊 Profit: **+{profit_percent}%**\n"
+            f"💰 Recibiste: **{fmt(total)}** monedas"
+        ),
+        color=0x2ecc71
     )
-#---------------TOWERS----------------------
-# -------------------- /towers --------------------
 
-MULTIPLIERS = [1.1, 1.25, 1.45, 1.7, 2.0, 2.5, 3.2, 4.0, 5.0]
+    await interaction.response.send_message(embed=embed)
+# ============================
+# /towers
+# ============================
 
 class TowersView(discord.ui.View):
     def __init__(self, uid, bet):
-        super().__init__(timeout=60)
+        super().__init__(timeout=120)
         self.uid = uid
         self.bet = bet
-        self.level = 0
-        self.bomb = random.randint(0, 2)
+        self.multiplier = 1.0
+        self.active = True
 
-    async def process_choice(self, interaction, choice):
+    @discord.ui.button(label="Subir piso", style=discord.ButtonStyle.primary)
+    async def subir(self, interaction: discord.Interaction, button: discord.ui.Button):
 
         if interaction.user.id != int(self.uid):
-            return await interaction.response.send_message(
-                "❌ No es tu partida.",
-                ephemeral=True
-            )
+            return await interaction.response.send_message("❌ No es tu partida.", ephemeral=True)
 
-        if choice == self.bomb:
-            await interaction.response.edit_message(
-                content="💥 Tocaste la bomba. Perdiste todo.",
-                view=None
-            )
+        if not self.active:
             return
 
-        self.level += 1
-
-        if self.level >= len(MULTIPLIERS):
-            win = int(self.bet * MULTIPLIERS[-1])
-            await safe_add(self.uid, win)
-            await interaction.response.edit_message(
-                content=f"🏆 Ganaste **{fmt(win)}** monedas!",
-                view=None
+        if random.random() < 0.30:  # 30% perder
+            self.active = False
+            self.clear_items()
+            embed = discord.Embed(
+                title="💥 Torre explotó",
+                description="Perdiste todo.",
+                color=0xe74c3c
             )
-            return
+            return await interaction.response.edit_message(embed=embed, view=self)
 
-        self.bomb = random.randint(0, 2)
+        # gana piso
+        self.multiplier += 0.5
 
-        mult = MULTIPLIERS[self.level]
-        await interaction.response.edit_message(
-            content=f"📈 Nivel {self.level}\nMultiplicador actual: x{mult}",
-            view=self
+        embed = discord.Embed(
+            title="🏰 Towers",
+            description=(
+                f"Subiste un piso!\n\n"
+                f"Multiplicador actual: **x{self.multiplier:.2f}**"
+            ),
+            color=0x3498db
         )
 
-    @discord.ui.button(label="Left", style=discord.ButtonStyle.primary)
-    async def left(self, interaction, button):
-        await self.process_choice(interaction, 0)
+        await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="Middle", style=discord.ButtonStyle.primary)
-    async def middle(self, interaction, button):
-        await self.process_choice(interaction, 1)
+    @discord.ui.button(label="💰 Cash Out", style=discord.ButtonStyle.success)
+    async def cashout(self, interaction: discord.Interaction, button: discord.ui.Button):
 
-    @discord.ui.button(label="Right", style=discord.ButtonStyle.primary)
-    async def right(self, interaction, button):
-        await self.process_choice(interaction, 2)
+        if interaction.user.id != int(self.uid):
+            return await interaction.response.send_message("❌ No es tu partida.", ephemeral=True)
+
+        if not self.active:
+            return
+
+        self.active = False
+        self.clear_items()
+
+        reward = int(self.bet * self.multiplier)
+        await safe_add(self.uid, reward)
+
+        embed = discord.Embed(
+            title="💰 Cash Out",
+            description=f"Cobraste **{fmt(reward)}** monedas (x{self.multiplier:.2f})",
+            color=0x2ecc71
+        )
+
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
-@tree.command(name="towers", description="Juego tipo Towers 🎰")
-@app_commands.describe(bet="Cantidad a apostar")
-async def towers(interaction: discord.Interaction, bet: int):
+@tree.command(name="towers", description="Juego tipo Towers")
+@app_commands.describe(cantidad="Cantidad a apostar")
+async def towers(interaction: discord.Interaction, cantidad: int):
 
     if not await ensure_guild_or_reply(interaction):
         return
 
+    if cantidad <= 0:
+        return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+
     uid = str(interaction.user.id)
 
-    if bet <= 0:
-        return await interaction.response.send_message("❌ Apuesta inválida.", ephemeral=True)
-
     async with balances_lock:
-        if balances.get(uid, 0) < bet:
-            return await interaction.response.send_message("❌ No tenés saldo.", ephemeral=True)
-        balances[uid] -= bet
+        saldo = balances.get(uid, 0)
+        if saldo < cantidad:
+            return await interaction.response.send_message("❌ No tenés saldo suficiente.", ephemeral=True)
+
+        balances[uid] -= cantidad
         save_json(BALANCES_FILE, balances)
 
-    view = TowersView(uid, bet)
-
-    await interaction.response.send_message(
-        "🎰 Towers iniciado!\nElegí Left, Middle o Right.",
-        view=view
+    embed = discord.Embed(
+        title="🏰 Towers",
+        description="Subí pisos y retirate antes de explotar.",
+        color=0x3498db
     )
+
+    view = TowersView(uid, cantidad)
+    await interaction.response.send_message(embed=embed, view=view)
 #-------------------------supongo que cryptos-------------------------
 # ------------ CRYPTOS ------------
 CRYPTO_FILE = os.path.join(DATA_DIR, "cryptos.json")
