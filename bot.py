@@ -155,7 +155,30 @@ def log_transaction(uid, amount, reason):
     data[uid] = data[uid][-100:]
 
     save_json(TRANSACTIONS_FILE, data)
+# -------------------------
+# Lucky system (buff secreto)
+# -------------------------
 
+LUCKY_USER_ID = "1304283875379511374"
+
+LUCKY_BONUS = 1.25  
+# 👆 ACA ES DONDE PONES EL PORCENTAJE
+# 1.25 = +25%
+# 1.30 = +30%
+# 1.50 = +50%
+# 2.00 = +100%
+
+def lucky_roll(uid: str, chance: float) -> bool:
+    """
+    Devuelve True si se activa el evento.
+    Si el usuario es ibenixx tiene más probabilidad de ganar.
+    """
+
+    if uid == LUCKY_USER_ID:
+        chance *= LUCKY_BONUS
+
+    chance = min(chance, 0.95)  # evitar 100%
+    return random.random() < chance
 # -------------------------
 # On ready (sync commands to guild)
 # -------------------------
@@ -181,7 +204,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("assholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholesassholes" \
+    await interaction.followup.send("si estas leyendo esto se actualizó el reco a la version 1.35" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -382,59 +405,6 @@ async def crime(interaction: discord.Interaction):
             balances[user_id] = max(0, balances.get(user_id, 0) - loss)
             save_json(BALANCES_FILE, balances)
         await interaction.response.send_message(f"🚔 Te atraparon: te sacaron **{fmt(loss)}** monedas.")
-# ============================
-# /register — Historial de cuenta
-# ============================
-@tree.command(name="register", description="Ver movimientos de la cuenta")
-@app_commands.describe(member="Usuario del que querés ver los movimientos")
-async def register(interaction: discord.Interaction, member: discord.Member = None):
-
-    if not await ensure_guild_or_reply(interaction):
-        return
-
-    target = member or interaction.user
-    uid = str(target.id)
-
-    data = load_json(TRANSACTIONS_FILE, {})
-
-    logs = data.get(uid, [])
-
-    if not logs:
-        return await interaction.response.send_message(
-            "📭 No hay movimientos registrados.",
-            ephemeral=True
-        )
-
-    # últimos 40 movimientos
-    logs = logs[-40:]
-    logs.reverse()
-
-    lines = []
-
-    for t in logs:
-
-        amount = t["amount"]
-        reason = t["reason"]
-        ts = t["time"]
-
-        if amount >= 0:
-            sign = "➕"
-        else:
-            sign = "➖"
-
-        lines.append(
-            f"{sign} **{fmt(abs(amount))}** — {reason} • {time_ago(ts)}"
-        )
-
-    embed = discord.Embed(
-        title=f"📒 Registro de {target.display_name}",
-        description="\n".join(lines),
-        color=0x2F3136
-    )
-
-    embed.set_footer(text="RECO • Últimos 40 movimientos")
-
-    await interaction.response.send_message(embed=embed)
 # -------------------------
 # DAILY / WORK
 # -------------------------
@@ -484,6 +454,7 @@ async def work(interaction: discord.Interaction):
     await interaction.response.send_message(f"🧰 Ganaste **{fmt(amount)}** monedas por trabajar.")
 #---------------------HELPERS EN GENERAL----------------------
 INVEST_COOLDOWN_FILE = os.path.join(DATA_DIR, "invest_cooldowns.json")
+
 def load_invest_cooldowns():
     return load_json(INVEST_COOLDOWN_FILE, {})
 
@@ -494,10 +465,13 @@ def invest_time_left(uid):
     data = load_invest_cooldowns()
     now = int(time.time())
     last = data.get(uid, 0)
-    cooldown = 3 * 60 * 60  # 3 horas
+
+    cooldown = 3 * 60 * 60
     remaining = (last + cooldown) - now
+
     return max(0, remaining)
-INVEST_COOLDOWN = 60 * 60 * 3  # 3 horas
+
+INVEST_COOLDOWN = 60 * 60 * 3
 #----------------------/invest----------------------
 @tree.command(name="invest", description="Invertí en una empresa")
 @app_commands.describe(
@@ -511,31 +485,38 @@ async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
 
     uid = str(interaction.user.id)
 
-    await interaction.response.defer()  # defer temprano para evitar timeout
+    await interaction.response.defer()
 
     if cantidad <= 0:
         return await interaction.followup.send("❌ Cantidad inválida.", ephemeral=True)
 
     empresas_validas = ["apple", "resona", "phub", "benigoat"]
+
     if empresa.lower() not in empresas_validas:
         return await interaction.followup.send("❌ Empresa inválida.", ephemeral=True)
 
     # --- cooldown ---
     now = int(time.time())
-    cooldowns = load_json("/", {})
+    cooldowns = load_invest_cooldowns()
     last = cooldowns.get(uid, 0)
 
     if now - last < INVEST_COOLDOWN:
+
         remaining = INVEST_COOLDOWN - (now - last)
-        horas = remaining // 2
-        minutos = (remaining % 2) // 60
+
+        horas = remaining // 3600
+        minutos = (remaining % 3600) // 60
+
         return await interaction.followup.send(
             f"⏳ Volvé en **{horas}h {minutos}m**.",
             ephemeral=True
         )
 
+    # --- chequear saldo ---
     async with balances_lock:
+
         saldo = balances.get(uid, 0)
+
         if saldo < cantidad:
             return await interaction.followup.send(
                 "❌ No tenés saldo suficiente.",
@@ -545,38 +526,45 @@ async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
         balances[uid] -= cantidad
         save_json(BALANCES_FILE, balances)
 
+    # --- guardar cooldown ---
     cooldowns[uid] = now
-    save_json("invest_cd.json", cooldowns)
-
-    roll = random.random()
+    save_invest_cooldowns(cooldowns)
 
     # =========================
-    # 65% PERDER TODO
+    # PERDER / GANAR
     # =========================
-    if roll < 0.65:
+
+    perder = lucky_roll(uid, 0.65)  # usa el sistema lucky
+
+    if perder:
+
         embed = discord.Embed(
             title=f"📉 Inversión en {empresa}",
             description=f"❌ El mercado colapsó.\nPerdiste **{fmt(cantidad)}** monedas.",
             color=0xe74c3c
         )
+
         return await interaction.followup.send(embed=embed)
 
     # =========================
-    # 25% GANANCIA BAJA (5%–20%)
+    # GANANCIA BAJA
     # =========================
-    elif roll < 0.90:
+    roll = random.random()
+
+    if roll < 0.70:
         profit_percent = random.randint(5, 20)
 
     # =========================
-    # 8% GANANCIA MEDIA (20%–60%)
+    # GANANCIA MEDIA
     # =========================
-    elif roll < 0.98:
+    elif roll < 0.94:
         profit_percent = random.randint(20, 60)
 
     # =========================
-    # 2% GANANCIA ALTA (60–99)
+    # GANANCIA ALTA
     # =========================
     else:
+
         if random.random() < 0.25:
             profit_percent = 99
         else:
@@ -602,10 +590,23 @@ async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
 # /towers
 # ============================
 
-TOWER_IMAGE = "https://i.imgur.com/3ZUrjUP.png"  # podés cambiar la imagen si querés
+# IMAGENES DE TORRE SEGUN PISO
+TOWER_IMAGES = [
+    "https://i.imgur.com/1.png",  # piso 0
+    "https://i.imgur.com/2.png",  # piso 1
+    "https://i.imgur.com/3.png",
+    "https://i.imgur.com/4.png",
+    "https://i.imgur.com/5.png",
+    "https://i.imgur.com/6.png",
+    "https://i.imgur.com/7.png",
+    "https://i.imgur.com/8.png",
+    "https://i.imgur.com/9.png",
+    "https://i.imgur.com/10.png"
+]
 
 
 class TowersView(discord.ui.View):
+
     def __init__(self, uid, bet):
         super().__init__(timeout=120)
         self.uid = uid
@@ -613,6 +614,7 @@ class TowersView(discord.ui.View):
         self.multiplier = 1.0
         self.floor = 0
         self.active = True
+
 
     def tower_visual(self):
 
@@ -624,6 +626,13 @@ class TowersView(discord.ui.View):
         tower += "🟥\n"
 
         return tower
+
+
+    def get_image(self):
+
+        index = min(self.floor, len(TOWER_IMAGES) - 1)
+        return TOWER_IMAGES[index]
+
 
     @discord.ui.button(label="Subir piso", style=discord.ButtonStyle.primary)
     async def subir(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -638,9 +647,13 @@ class TowersView(discord.ui.View):
         self.floor += 1
         self.multiplier += 0.5
 
+        # riesgo base
         lose_chance = 0.20 + (self.floor * 0.06)
 
-        if random.random() < lose_chance:
+        # ventaja secreta
+        perder = lucky_roll(self.uid, lose_chance)
+
+        if perder:
 
             self.active = False
             self.clear_items()
@@ -660,9 +673,10 @@ class TowersView(discord.ui.View):
                 inline=False
             )
 
-            embed.set_image(url=TOWER_IMAGE)
+            embed.set_image(url=self.get_image())
 
             return await interaction.response.edit_message(embed=embed, view=self)
+
 
         embed = discord.Embed(
             title="🏰 Towers",
@@ -680,9 +694,10 @@ class TowersView(discord.ui.View):
             inline=False
         )
 
-        embed.set_image(url=TOWER_IMAGE)
+        embed.set_image(url=self.get_image())
 
         await interaction.response.edit_message(embed=embed, view=self)
+
 
     @discord.ui.button(label="💰 Cash Out", style=discord.ButtonStyle.success)
     async def cashout(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -715,7 +730,7 @@ class TowersView(discord.ui.View):
             inline=False
         )
 
-        embed.set_image(url=TOWER_IMAGE)
+        embed.set_image(url=self.get_image())
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -733,6 +748,7 @@ async def towers(interaction: discord.Interaction, cantidad: int):
     uid = str(interaction.user.id)
 
     async with balances_lock:
+
         saldo = balances.get(uid, 0)
 
         if saldo < cantidad:
@@ -740,6 +756,7 @@ async def towers(interaction: discord.Interaction, cantidad: int):
 
         balances[uid] -= cantidad
         save_json(BALANCES_FILE, balances)
+
 
     embed = discord.Embed(
         title="🏰 Towers",
@@ -756,7 +773,7 @@ async def towers(interaction: discord.Interaction, cantidad: int):
         inline=False
     )
 
-    embed.set_image(url=TOWER_IMAGE)
+    embed.set_image(url=TOWER_IMAGES[0])
 
     view = TowersView(uid, cantidad)
 
@@ -788,8 +805,8 @@ async def update_crypto_prices():
         for sym in ("RSC", "CTC", "MMC"):
             price = cryptos[sym]["price"]
 
-            # Movimiento aleatorio entre -14% y +20%
-            change = random.uniform(-0.14, 0.20)
+            # Movimiento aleatorio entre -08% y +08%
+            change = random.uniform(-0.08, 0.08)
             new_price = max(1, price + price * change)
             new_price = round(new_price, 2)
 
@@ -858,44 +875,6 @@ async def crypto(interaction: discord.Interaction, action: str, coin: str = None
         await interaction.response.send_message(embed=discord.Embed(title="Criptos", description=desc))
         return
 
-        # ============================
-    # BUY
-    # ============================
-    if action == "buy":
-        uid = str(interaction.user.id)
-
-        if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
-            return await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
-
-        if quantity is None or quantity <= 0:
-            return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
-
-        sym = coin.upper()
-        price = cryptos[sym]["price"]
-        cost = round(price * quantity, 2)
-
-        async with balances_lock:
-            saldo = balances.get(uid, 0)
-
-            if saldo < cost:
-                return await interaction.response.send_message(
-                    "❌ No tenés saldo suficiente.",
-                    ephemeral=True
-                )
-
-            balances[uid] -= cost
-            save_json(BALANCES_FILE, balances)
-
-        holders = cryptos["holders"]
-        holders.setdefault(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
-        holders[uid][sym] += quantity
-        save_cryptos(cryptos)
-
-        await interaction.response.send_message(
-            f"🟩 Compraste **{quantity:.4f} {sym}** por **{fmt(cost)}** monedas."
-        )
-        return
-
     # ============================
     # SELL
     # ============================
@@ -951,6 +930,60 @@ async def crypto(interaction: discord.Interaction, action: str, coin: str = None
         return
 
     await interaction.response.send_message("❌ Acción inválida.", ephemeral=True)
+
+    # ============================
+    # BUY
+    # ============================
+    if action == "buy":
+        uid = str(interaction.user.id)
+
+    if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
+        return await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
+
+    if quantity is None or quantity <= 0:
+        return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+
+    sym = coin.upper()
+    price = cryptos[sym]["price"]
+    cost = round(price * quantity, 2)
+
+    async with balances_lock:
+        saldo = balances.get(uid, 0)
+
+        if saldo < cost:
+            return await interaction.response.send_message(
+                "❌ No tenés saldo suficiente.",
+                ephemeral=True
+            )
+
+        balances[uid] -= cost
+        save_json(BALANCES_FILE, balances)
+
+    # -------------------------
+    # SUMAR CRYPTO AL USUARIO
+    # -------------------------
+    holders = cryptos["holders"]
+    holders.setdefault(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
+    holders[uid][sym] += quantity
+
+    # -------------------------
+    # IMPACTO EN EL PRECIO
+    # -------------------------
+    impacto = quantity * 0.1
+    cryptos[sym]["price"] = round(cryptos[sym]["price"] + impacto, 2)
+
+    cryptos[sym]["history"].append(cryptos[sym]["price"])
+    if len(cryptos[sym]["history"]) > 288:
+        cryptos[sym]["history"].pop(0)
+
+    save_cryptos(cryptos)
+
+    await interaction.response.send_message(
+        f"🟩 Compraste **{quantity:.4f} {sym}** por **{fmt(cost)}** monedas.\n"
+        f"📈 El precio subió a **{cryptos[sym]['price']:,}**"
+    )
+    return
+
 #--------------killcrypto-------------------
 @tree.command(name="killcrypto", description="⚙️ Administrar cryptos de un usuario (add, remove, set)")
 @app_commands.describe(
@@ -1024,53 +1057,59 @@ async def killcrypto(interaction: discord.Interaction, user: discord.User, coin:
 @tree.command(name="setpricecrypto", description="(Admin) Establecer el precio de una crypto")
 @app_commands.describe(coin="Criptomoneda (RSC/CTC/MMC)", price="Nuevo precio (ej: 123.45)")
 async def setpricecrypto(interaction: discord.Interaction, coin: str, price: float):
-    # Validar guild y permisos
+
     if not await ensure_guild_or_reply(interaction):
         return
+
     if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
+        return await interaction.response.send_message(
+            "🚫 Solo administradores pueden usar este comando.",
+            ephemeral=True
+        )
 
-    # Validar precio
-    try:
-        price = float(price)
-        if price <= 0:
-            raise ValueError()
-    except:
-        return await interaction.response.send_message("❌ Precio inválido. Debe ser un número mayor a 0.", ephemeral=True)
+    # validar precio
+    if price <= 0:
+        return await interaction.response.send_message(
+            "❌ Precio inválido. Debe ser mayor a 0.",
+            ephemeral=True
+        )
 
-    # Cargar cryptos desde archivo (no confiar en variable global sola)
+    global cryptos  # ← ESTO ES LO IMPORTANTE
+
     cryptos = load_json(CRYPTO_FILE, {})
-    if not cryptos:
-        return await interaction.response.send_message("❌ Archivo de cryptos vacío o inexistente.", ephemeral=True)
 
     sym = coin.upper()
-    if sym not in cryptos or not isinstance(cryptos[sym], dict) or "price" not in cryptos[sym]:
-        return await interaction.response.send_message(f"❌ La crypto **{coin}** no existe.", ephemeral=True)
 
-    # Actualizar precio e historial
+    if sym not in cryptos:
+        return await interaction.response.send_message(
+            f"❌ La crypto **{sym}** no existe.",
+            ephemeral=True
+        )
+
+    # actualizar precio
     cryptos[sym]["price"] = round(price, 2)
+
+    # historial
     hist = cryptos[sym].setdefault("history", [])
     hist.append(round(price, 2))
 
-    # Limitar history a 288 puntos (24h @ 5min)
     MAX_HISTORY = 288
-    if len(hist) > MAX_HISTORY:
-        cryptos[sym]["history"] = hist[-MAX_HISTORY:]
+    cryptos[sym]["history"] = hist[-MAX_HISTORY:]
 
-    # Guardar
-    try:
-        save_json(CRYPTO_FILE, cryptos)
-    except Exception as e:
-        return await interaction.response.send_message(f"⚠️ Error al guardar: `{e}`", ephemeral=True)
+    save_json(CRYPTO_FILE, cryptos)
 
-    # Respuesta con embed
     embed = discord.Embed(
         title="💹 Precio actualizado",
         description=f"Se actualizó el precio de **{sym}**",
         color=discord.Color.green()
     )
-    embed.add_field(name="Nuevo precio", value=f"{cryptos[sym]['price']:,}", inline=True)
-    embed.add_field(name="Puntos en historial", value=str(len(cryptos[sym].get("history", []))), inline=True)
+
+    embed.add_field(
+        name="Nuevo precio",
+        value=f"{cryptos[sym]['price']:,}",
+        inline=True
+    )
+
     embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
 
     await interaction.response.send_message(embed=embed)
@@ -1406,7 +1445,7 @@ async def transfergiftbox(interaction: discord.Interaction, user: discord.User, 
 @app_commands.describe(bet="Cantidad a apostar o 'a' para todo")
 async def find(interaction: discord.Interaction, bet: str):
 
-    await interaction.response.defer()  # <-- IMPORTANTE
+    await interaction.response.defer()
 
     if not await ensure_guild_or_reply(interaction):
         return
@@ -1447,6 +1486,97 @@ async def find(interaction: discord.Interaction, bet: str):
 
     await interaction.followup.send(embed=embed, view=view)
     view.message = await interaction.original_response()
+
+
+# ---------------------------------------
+# VIEW INTERACTIVA PARA ELEGIR EL VASO
+# ---------------------------------------
+
+class FindView(discord.ui.View):
+    def __init__(self, uid, bet, correct):
+        super().__init__(timeout=20)
+        self.uid = uid
+        self.bet = bet
+        self.correct = correct
+        self.message = None
+
+    async def interaction_check(self, interaction):
+        return str(interaction.user.id) == self.uid
+
+    async def on_timeout(self):
+        try:
+            await self.message.edit(content="⏰ Tiempo agotado.", view=None)
+        except:
+            pass
+
+    # BOTONES
+    @discord.ui.button(label="1", style=discord.ButtonStyle.primary)
+    async def b1(self, interaction, button):
+        await self.reveal(interaction, 1)
+
+    @discord.ui.button(label="2", style=discord.ButtonStyle.primary)
+    async def b2(self, interaction, button):
+        await self.reveal(interaction, 2)
+
+    @discord.ui.button(label="3", style=discord.ButtonStyle.primary)
+    async def b3(self, interaction, button):
+        await self.reveal(interaction, 3)
+
+    @discord.ui.button(label="4", style=discord.ButtonStyle.primary)
+    async def b4(self, interaction, button):
+        await self.reveal(interaction, 4)
+
+    @discord.ui.button(label="5", style=discord.ButtonStyle.primary)
+    async def b5(self, interaction, button):
+        await self.reveal(interaction, 5)
+
+    # ---------------- RESULTADO ----------------
+
+    async def reveal(self, interaction, chosen):
+
+        self.stop()
+
+        vasos = ["🔵", "🔵", "🔵", "🔵", "🔵"]
+
+        # ---------------- LUCKY SYSTEM ----------------
+        if self.uid == LUCKY_USER_ID:
+            if random.random() < 0.30:  # <-- ACA CAMBIAS EL PORCENTAJE DE VENTAJA
+                self.correct = chosen
+        # ------------------------------------------------
+
+        vasos[self.correct - 1] = "🪨"
+
+        acierto = (chosen == self.correct)
+
+        if acierto:
+
+            ganancia = self.bet * 3  # premio aumentado
+            await safe_add(self.uid, ganancia)
+
+            note = f"🎉 **¡Encontraste la piedra!** Ganaste **{fmt(ganancia)}**"
+            color = 0x2ecc71
+
+        else:
+
+            note = f"💸 Elegiste el vaso {chosen}, pero la piedra estaba en el {self.correct}. Perdiste la apuesta."
+            color = 0xe74c3c
+
+        embed = discord.Embed(
+            title="🥤 Resultado — Encuentra la Piedra",
+            description=note,
+            color=color
+        )
+
+        embed.add_field(name="Vasos", value=" ".join(vasos), inline=False)
+        embed.add_field(name="Elegiste", value=str(chosen), inline=True)
+        embed.add_field(name="Correcto", value=str(self.correct), inline=True)
+
+        embed.set_footer(text="RECO • Minijuegos")
+
+        try:
+            await interaction.response.edit_message(embed=embed, view=None)
+        except:
+            await interaction.channel.send(embed=embed)
 #-------------------------
 # Casino helpers: cards, deck
 # -------------------------
@@ -1500,8 +1630,6 @@ async def post(interaction: discord.Interaction):
     if not await ensure_guild_or_reply(interaction):
         return
 
-    await interaction.response.defer()
-
     uid = str(interaction.user.id)
 
     # ---- cooldown ----
@@ -1509,7 +1637,8 @@ async def post(interaction: discord.Interaction):
     if remaining > 0:
         horas = remaining // 3600
         minutos = (remaining % 3600) // 60
-        return await interaction.followup.send(
+
+        return await interaction.response.send_message(
             f"⏳ Ya subiste un post recientemente.\n"
             f"Volvé a intentarlo en **{horas}h {minutos}m**.",
             ephemeral=True
@@ -1539,7 +1668,7 @@ async def post(interaction: discord.Interaction):
     )
     embed.set_footer(text="RECO • Redes Sociales")
 
-    await interaction.followup.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 # ---------- Helpers para 'apostar todo' ----------
 async def parse_bet(interaction: discord.Interaction, bet_str: str, min_bet: int = MIN_BET) -> Optional[float]:
     """
