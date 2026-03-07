@@ -212,7 +212,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("if youre reading this its too late" \
+    await interaction.followup.send("i hate being bipolar its awesome" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -605,180 +605,192 @@ async def invest_list(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed)
 
-#---------------------- /invest (CORREGIDO) ----------------------
+#---------------------- /invest (COMPLETO Y CORREGIDO) ----------------------
 @tree.command(name="invest", description="Invertí en una empresa")
 @app_commands.describe(
     empresa="Apple | RESONA | PHub | Benigoat | o tu empresa personalizada",
     cantidad="Cantidad a invertir"
 )
 async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
+    try:
+        # Verificación manual
+        if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
+            await interaction.response.send_message("❌ Comando no disponible.", ephemeral=True)
+            return
 
-    if not await ensure_guild_or_reply(interaction):
-        return
+        uid = str(interaction.user.id)
 
-    uid = str(interaction.user.id)
+        # Validar cantidad
+        if cantidad <= 0:
+            await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+            return
 
-    # ---- Defer inmediato para evitar timeout ----
-    await interaction.response.defer()
-
-    # Validar cantidad
-    if cantidad <= 0:
-        return await interaction.followup.send("❌ Cantidad inválida. Debe ser mayor a 0.", ephemeral=True)
-
-    # ---- Verificar cooldown ----
-    now = int(time.time())
-    cooldowns = load_invest_cooldowns()
-    last = cooldowns.get(uid, 0)
-
-    if now - last < INVEST_COOLDOWN:
-        remaining = INVEST_COOLDOWN - (now - last)
-        horas = remaining // 3600
-        minutos = (remaining % 3600) // 60
-        segundos = remaining % 60
-
-        return await interaction.followup.send(
-            f"⏳ Volvé en **{horas}h {minutos}m {segundos}s**.",
-            ephemeral=True
-        )
-
-    # ---- Verificar que la empresa existe ----
-    empresas_validas = ["apple", "resona", "phub", "benigoat"]
-    empresa_lower = empresa.lower().strip()
-    
-    # Cargar empresas personalizadas
-    companies_data = load_invest_companies()
-    empresas_custom = {k: v for k, v in companies_data["companies"].items()}
-    
-    # Verificar si es empresa base o personalizada
-    if empresa_lower not in empresas_validas and empresa_lower not in empresas_custom:
-        # Sugerir empresas similares
-        todas_empresas = empresas_validas + list(empresas_custom.keys())
-        sugerencias = [e for e in todas_empresas if empresa_lower in e or e in empresa_lower][:3]
+        # ---- Verificar que la empresa existe ----
+        empresas_validas = ["apple", "resona", "phub", "benigoat"]
+        empresa_lower = empresa.lower().strip()
         
-        msg = f"❌ Empresa '{empresa}' no encontrada."
-        if sugerencias:
-            msg += f"\n¿Quizás quisiste decir: {', '.join(sugerencias)}?"
+        # Cargar empresas personalizadas
+        companies_data = load_invest_companies()
+        empresas_custom = {k: v for k, v in companies_data["companies"].items()}
         
-        return await interaction.followup.send(msg, ephemeral=True)
+        # Verificar si es empresa base o personalizada
+        if empresa_lower not in empresas_validas and empresa_lower not in empresas_custom:
+            # Sugerir empresas similares
+            todas_empresas = empresas_validas + list(empresas_custom.keys())
+            sugerencias = [e for e in todas_empresas if empresa_lower in e or e in empresa_lower][:3]
+            
+            msg = f"❌ Empresa '{empresa}' no encontrada."
+            if sugerencias:
+                msg += f"\n¿Quizás quisiste decir: {', '.join(sugerencias)}?"
+            
+            await interaction.response.send_message(msg, ephemeral=True)
+            return
 
-    # ---- Verificar saldo ----
-    async with balances_lock:
-        saldo = balances.get(uid, 0)
-        if saldo < cantidad:
-            return await interaction.followup.send(
-                f"❌ No tenés saldo suficiente. Necesitás {fmt(cantidad)} y tenés {fmt(saldo)}.",
+        # Cooldown
+        now = int(time.time())
+        cooldowns = load_invest_cooldowns()
+        last = cooldowns.get(uid, 0)
+        if now - last < INVEST_COOLDOWN:
+            remaining = INVEST_COOLDOWN - (now - last)
+            horas = remaining // 3600
+            minutos = (remaining % 3600) // 60
+            await interaction.response.send_message(
+                f"⏳ Volvé en **{horas}h {minutos}m**.",
                 ephemeral=True
             )
-        
-        # Descontar saldo
-        balances[uid] -= cantidad
-        save_json(BALANCES_FILE, balances)
+            return
 
-    # ---- Guardar cooldown ----
-    cooldowns[uid] = now
-    save_invest_cooldowns(cooldowns)
+        # Saldo
+        async with balances_lock:
+            if balances.get(uid, 0) < cantidad:
+                await interaction.response.send_message(
+                    f"❌ Saldo insuficiente. Necesitás {fmt(cantidad)} y tenés {fmt(balances.get(uid, 0))}.",
+                    ephemeral=True
+                )
+                return
+            balances[uid] -= cantidad
+            save_json(BALANCES_FILE, balances)
 
-    # ---- Registrar inversión en empresa personalizada ----
-    if empresa_lower in empresas_custom:
-        empresas_custom[empresa_lower]["inversiones_totales"] += cantidad
-        empresas_custom[empresa_lower]["veces_invertida"] += 1
-        save_invest_companies(companies_data)
+        # Guardar cooldown
+        cooldowns[uid] = now
+        save_invest_cooldowns(cooldowns)
 
-    # =========================
-    #    VENTAJA PARA IBANIXX (INVISIBLE)
-    # =========================
-    if uid == LUCKY_USER_ID:
-        # 40% menos probabilidad de perder
-        perder = lucky_roll(uid, 0.45)  # Normal es 0.65, para vos 0.45
-    else:
-        perder = lucky_roll(uid, 0.65)  # Probabilidad normal para otros
-
-    # =========================
-    #    PERDER / GANAR
-    # =========================
-    if perder:
-        embed = discord.Embed(
-            title=f"📉 Inversión en {empresa}",
-            description=f"❌ El mercado colapsó.\nPerdiste **{fmt(cantidad)}** monedas.",
-            color=0xe74c3c
-        )
-        
-        # Bonus para empresas personalizadas
+        # ---- Registrar inversión en empresa personalizada ----
         if empresa_lower in empresas_custom:
-            embed.set_footer(text=f"Empresa de {empresas_custom[empresa_lower]['creador']}")
-        
-        return await interaction.followup.send(embed=embed)
+            empresas_custom[empresa_lower]["inversiones_totales"] += cantidad
+            empresas_custom[empresa_lower]["veces_invertida"] += 1
+            save_invest_companies(companies_data)
 
-    # =========================
-    #    GANANCIA
-    # =========================
-    roll = random.random()
-
-    # Ajustar probabilidades según tipo de empresa
-    if empresa_lower in empresas_custom:
-        # Empresas personalizadas: un poco más riesgosas pero más reward
-        if roll < 0.60:  # 60% baja
-            profit_percent = random.randint(5, 25)
-        elif roll < 0.90:  # 30% media
-            profit_percent = random.randint(25, 70)
-        else:  # 10% alta
-            profit_percent = random.randint(70, 120) if random.random() < 0.3 else random.randint(70, 100)
-    else:
-        # Empresas base (probabilidades originales)
-        if roll < 0.70:
-            profit_percent = random.randint(5, 20)
-        elif roll < 0.94:
-            profit_percent = random.randint(20, 60)
+        # =========================
+        #    VENTAJA PARA IBENIXX (INVISIBLE)
+        # =========================
+        if uid == LUCKY_USER_ID:
+            # 40% menos probabilidad de perder
+            perder = lucky_roll(uid, 0.45)  # Normal es 0.65, para vos 0.45
         else:
-            if random.random() < 0.25:
-                profit_percent = 99
+            perder = lucky_roll(uid, 0.65)  # Probabilidad normal para otros
+
+        # =========================
+        #    PERDER / GANAR
+        # =========================
+        if perder:
+            embed = discord.Embed(
+                title=f"📉 Inversión en {empresa}",
+                description=f"❌ El mercado colapsó.\nPerdiste **{fmt(cantidad)}** monedas.",
+                color=0xe74c3c
+            )
+            
+            # Bonus para empresas personalizadas
+            if empresa_lower in empresas_custom:
+                embed.set_footer(text=f"Empresa de {empresas_custom[empresa_lower]['creador']}")
+            
+            await interaction.response.send_message(embed=embed)
+            return
+
+        # =========================
+        #    GANANCIA
+        # =========================
+        roll = random.random()
+
+        # Ajustar probabilidades según tipo de empresa
+        if empresa_lower in empresas_custom:
+            # Empresas personalizadas: un poco más riesgosas pero más reward
+            if roll < 0.60:  # 60% baja
+                profit_percent = random.randint(5, 25)
+            elif roll < 0.90:  # 30% media
+                profit_percent = random.randint(25, 70)
+            else:  # 10% alta
+                if random.random() < 0.3:
+                    profit_percent = random.randint(70, 120)
+                else:
+                    profit_percent = random.randint(70, 100)
+        else:
+            # Empresas base (probabilidades originales)
+            if roll < 0.70:
+                profit_percent = random.randint(5, 20)
+            elif roll < 0.94:
+                profit_percent = random.randint(20, 60)
             else:
-                profit_percent = random.randint(60, 90)
+                if random.random() < 0.25:
+                    profit_percent = 99
+                else:
+                    profit_percent = random.randint(60, 90)
 
-    # ---- VENTAJA PARA IBANIXX: Mejores ganancias (INVISIBLE) ----
-    if uid == LUCKY_USER_ID:
-        profit_percent = int(profit_percent * 1.2)  # +20% en todas las ganancias
-        profit_percent = min(profit_percent, 150)   # Cap máximo 150%
+        # ---- VENTAJA PARA IBENIXX: Mejores ganancias (INVISIBLE) ----
+        if uid == LUCKY_USER_ID:
+            profit_percent = int(profit_percent * 1.2)  # +20% en todas las ganancias
+            profit_percent = min(profit_percent, 150)   # Cap máximo 150%
 
-    ganancia = int(cantidad * (profit_percent / 100))
-    total = cantidad + ganancia
+        ganancia = int(cantidad * (profit_percent / 100))
+        total = cantidad + ganancia
 
-    # Aplicar ganancia
-    await safe_add(uid, total)
+        # Aplicar ganancia
+        await safe_add(uid, total)
 
-    # ---- Embed de éxito ----
-    embed = discord.Embed(
-        title=f"📈 Inversión en {empresa}",
-        description=(
-            f"✅ **¡Inversión exitosa!**\n\n"
-            f"📊 **Profit:** +{profit_percent}%\n"
-            f"💰 **Recibiste:** {fmt(total)} monedas\n"
-            f"📈 **Ganancia neta:** +{fmt(ganancia)}"
-        ),
-        color=0x2ecc71
-    )
+        # ---- Embed de éxito ----
+        embed = discord.Embed(
+            title=f"📈 Inversión en {empresa}",
+            description=(
+                f"✅ **¡Inversión exitosa!**\n\n"
+                f"📊 **Profit:** +{profit_percent}%\n"
+                f"💰 **Recibiste:** {fmt(total)} monedas\n"
+                f"📈 **Ganancia neta:** +{fmt(ganancia)}"
+            ),
+            color=0x2ecc71
+        )
 
-    # ---- Estadísticas adicionales ----
-    if empresa_lower in empresas_custom:
-        creador_id = empresas_custom[empresa_lower]["creador"]
-        try:
-            creador = await bot.fetch_user(int(creador_id))
+        # ---- Estadísticas adicionales ----
+        if empresa_lower in empresas_custom:
+            creador_id = empresas_custom[empresa_lower]["creador"]
+            try:
+                # Intentar obtener el usuario creador
+                creador = await bot.fetch_user(int(creador_id))
+                embed.add_field(
+                    name="👑 Creada por",
+                    value=creador.mention,
+                    inline=True
+                )
+            except:
+                embed.add_field(
+                    name="👑 Creada por",
+                    value=f"Usuario {creador_id}",
+                    inline=True
+                )
+            
             embed.add_field(
-                name="👑 Creada por",
-                value=creador.mention,
+                name="📊 Total invertido",
+                value=f"{fmt(empresas_custom[empresa_lower]['inversiones_totales'])}",
                 inline=True
             )
-        except:
-            pass
-        
-        embed.add_field(
-            name="📊 Total invertido",
-            value=f"{fmt(empresas_custom[empresa_lower]['inversiones_totales'])}",
-            inline=True
-        )
 
-    await interaction.followup.send(embed=embed)
+        await interaction.response.send_message(embed=embed)
 
+    except Exception as e:
+        print(f"ERROR en /invest: {e}")
+        import traceback
+        traceback.print_exc()
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Error inesperado.", ephemeral=True)
 # ============================
 # /towers (MODIFICADO)
 # ============================
@@ -1081,9 +1093,10 @@ async def update_crypto_prices():
 @app_commands.describe(
     action="status | buy | sell | bought",
     coin="RSC | CTC | MMC",
-    quantity="Cantidad para buy/sell"
+    quantity="Cantidad para buy/sell",
+    usuario="Usuario para ver su cartera (solo en action=bought)"
 )
-async def crypto(interaction: discord.Interaction, action: str, coin: str = None, quantity: float = None):
+async def crypto(interaction: discord.Interaction, action: str, coin: str = None, quantity: float = None, usuario: Optional[discord.User] = None):
 
     if not await ensure_guild_or_reply(interaction):
         return
@@ -1235,41 +1248,65 @@ async def crypto(interaction: discord.Interaction, action: str, coin: str = None
 
 
     # ============================
-    # BOUGHT (PORTAFOLIO)
+    # BOUGHT (PORTAFOLIO) - CON OPCIÓN USER
     # ============================
     if action == "bought":
 
-        uid = str(interaction.user.id)
+        # Determinar de quién mostrar la cartera
+        if usuario:
+            # Si se especificó un usuario, solo admins pueden verlo
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "❌ Solo los administradores pueden ver la cartera de otros usuarios.",
+                    ephemeral=True
+                )
+                return
+            uid = str(usuario.id)
+            titulo = f"💼 Cartera de {usuario.display_name}"
+        else:
+            uid = str(interaction.user.id)
+            titulo = "💼 Tu cartera"
 
         holders = cryptos["holders"]
         u = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
 
         lines = []
+        total_valor = 0
 
         for s in ("RSC", "CTC", "MMC"):
             amt = u.get(s, 0)
-
             if amt > 0:
-                value = round(amt * cryptos[s]["price"], 2)
+                valor = round(amt * cryptos[s]["price"], 2)
+                total_valor += valor
                 lines.append(
-                    f"**{s}** → {amt:.4f} (≈ {fmt(value)} monedas)"
+                    f"**{s}** → {amt:.4f} (≈ {fmt(valor)} monedas)"
                 )
 
         if not lines:
-            await interaction.response.send_message(
-                "❌ No tenés cryptos.",
-                ephemeral=True
-            )
+            if usuario:
+                msg = f"❌ {usuario.display_name} no tiene cryptos."
+            else:
+                msg = "❌ No tenés cryptos."
+            
+            await interaction.response.send_message(msg, ephemeral=True)
             return
 
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="💼 Tu cartera",
-                description="\n".join(lines)
-            )
-        )
-        return
+        # Agregar valor total si hay más de una crypto
+        if len(lines) > 1:
+            lines.append(f"\n**💰 Valor total:** ≈ {fmt(total_valor)} monedas")
 
+        embed = discord.Embed(
+            title=titulo,
+            description="\n".join(lines),
+            color=discord.Color.gold()
+        )
+        
+        # Si es la cartera de otro usuario, mostrar quién la pidió
+        if usuario:
+            embed.set_footer(text=f"Consultado por {interaction.user.display_name}")
+
+        await interaction.response.send_message(embed=embed)
+        return
 
     # ============================
     # ACCION INVALIDA
@@ -1953,8 +1990,54 @@ def buff_time_left(uid, buff_name):
         return 0
 
     return max(data[uid][buff_name] - now, 0)
+#------------------------------------------------
+#--------------------/post-----------------------
+#------------------------------------------------
+@tree.command(name="post", description="Subí un post a redes sociales 📱")
+async def post(interaction: discord.Interaction):
+    try:
+        # Verificación manual sin función externa
+        if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
+            await interaction.response.send_message("❌ Comando no disponible en este servidor.", ephemeral=True)
+            return
 
+        uid = str(interaction.user.id)
 
+        # Cooldown
+        remaining = post_time_left(uid)
+        if remaining > 0:
+            horas = remaining // 3600
+            minutos = (remaining % 3600) // 60
+            await interaction.response.send_message(
+                f"⏳ Volvé en **{horas}h {minutos}m**.",
+                ephemeral=True
+            )
+            return
+
+        # Generar ganancia
+        ganancia = random.randint(0, 6700)
+
+        # Guardar cooldown
+        data = load_post_cooldowns()
+        data[uid] = int(time.time())
+        save_post_cooldowns(data)
+
+        # Pagar
+        if ganancia > 0:
+            await safe_add(uid, ganancia)
+
+        # Responder
+        embed = discord.Embed(
+            title="📸 Post en redes",
+            description=f"📱 Ganaste **{fmt(ganancia)}** monedas!" if ganancia > 0 else "📱 No tuviste alcance 😔",
+            color=0x2ecc71 if ganancia > 0 else 0xe67e22
+        )
+        await interaction.response.send_message(embed=embed)
+
+    except Exception as e:
+        print(f"ERROR en /post: {e}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Error inesperado.", ephemeral=True)
 # =========================
 #          /boxes
 # =========================
@@ -2342,88 +2425,6 @@ def post_time_left(uid):
     cooldown = 5 * 60 * 60  # 5 horas
     remaining = (last + cooldown) - now
     return max(0, remaining)
-# ============================
-# /post — Redes sociales (CORREGIDO)
-# ============================
-
-# Asegurate de que esta función esté definida ANTES del comando
-POST_COOLDOWN_FILE = os.path.join(DATA_DIR, "post_cooldowns.json")
-
-def load_post_cooldowns():
-    """Carga los cooldowns de posts"""
-    return load_json(POST_COOLDOWN_FILE, {})
-
-def save_post_cooldowns(data):
-    """Guarda los cooldowns de posts"""
-    save_json(POST_COOLDOWN_FILE, data)
-
-def post_time_left(uid):
-    """Calcula el tiempo restante para poder postear"""
-    data = load_post_cooldowns()
-    now = int(time.time())
-    last = data.get(uid, 0)
-    cooldown = 5 * 60 * 60  # 5 horas en segundos
-    remaining = (last + cooldown) - now
-    return max(0, remaining)
-
-@tree.command(name="post", description="Subí un post a redes sociales 📱 (cada 1 hora)")
-async def post(interaction: discord.Interaction):
-    # Verificar guild SIN responder automáticamente
-    if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
-        await interaction.response.send_message("❌ Comandos solo disponibles en el servidor autorizado.", ephemeral=True)
-        return
-
-    uid = str(interaction.user.id)
-
-    # ---- cooldown ----
-    remaining = post_time_left(uid)
-    if remaining > 0:
-        horas = remaining // 3600
-        minutos = (remaining % 3600) // 60
-        segundos = (remaining % 60)
-        
-        await interaction.response.send_message(
-            f"⏳ Ya subiste un post recientemente.\n"
-            f"Volvé a intentarlo en **{horas}h {minutos}m {segundos}s**.",
-            ephemeral=True
-        )
-        return
-
-    # ---- Defer la respuesta para evitar timeout ----
-    await interaction.response.defer()
-
-    try:
-        # ---- generar ganancia ----
-        ganancia = random.randint(0, 9679)
-
-        # ---- guardar cooldown ----
-        data = load_post_cooldowns()
-        data[uid] = int(time.time())
-        save_post_cooldowns(data)
-
-        # ---- pagar ----
-        if ganancia > 0:
-            await safe_add(uid, ganancia)
-            msg = f"📱 Subiste un post y ganaste **{fmt(ganancia)}** monedas!"
-            color = 0x2ecc71
-        else:
-            msg = "📱 Subiste un post… pero no tuvo alcance 😔 (0 monedas)"
-            color = 0xe67e22
-
-        embed = discord.Embed(
-            title="📸 Post en redes",
-            description=msg,
-            color=color
-        )
-        embed.set_footer(text="RECO • Redes Sociales")
-
-        # Usar followup en lugar de response.send_message
-        await interaction.followup.send(embed=embed)
-        
-    except Exception as e:
-        # Manejar cualquier error
-        print(f"Error en /post para {uid}: {e}")
-        await interaction.followup.send("❌ Ocurrió un error al procesar tu post.", ephemeral=True)
 # ---------- Helpers para 'apostar todo' ----------
 async def parse_bet(interaction: discord.Interaction, bet_str: str, min_bet: int = MIN_BET) -> Optional[float]:
     """
@@ -2517,7 +2518,7 @@ async def slots(interaction: discord.Interaction, bet: str):
         await interaction.response.send_message(f"🎰 {' | '.join(res)} — Perdiste **{fmt(int(bet_val))}** jugando slots.")
 
 # ==========================
-#    BLACKJACK COMPLETO CON VENTAJA INVISIBLE
+#    BLACKJACK CON VENTAJA ESTADÍSTICA (INVISIBLE)
 # ==========================
 
 blackjack_sessions: dict[str, dict] = {}
@@ -2541,28 +2542,38 @@ class BlackjackView(discord.ui.View):
         deck = self.session["deck"]
         uid = self.uid
 
-        # ---- VENTAJA INVISIBLE: 25% de chance de obtener carta justa ----
-        if uid == LUCKY_USER_ID and random.random() < 0.25:
+        # ---- VENTAJA ESTADÍSTICA: 30% más de chance de obtener carta justa ----
+        # Probabilidad base: depende de las cartas en el mazo
+        # La ventaja es que en lugar de elegir aleatoriamente, a veces elegimos una carta útil
+        
+        if uid == LUCKY_USER_ID:
             pval_actual = hand_value(self.session["player"])
             necesita = 21 - pval_actual
             
+            # Si necesita una carta específica (1-11)
             if 1 <= necesita <= 11:
-                # Buscar carta que le sirva
+                # Buscar cartas que le sirvan en el mazo
+                cartas_utiles = []
                 for carta in deck:
                     rank = carta[:-1] if len(carta) > 2 else carta[0]
                     valor = CARD_VALUES.get(rank, 0)
                     if valor == necesita or (necesita == 11 and rank == 'A'):
-                        deck.remove(carta)
-                        self.session["player"].append(carta)
-                        pval = hand_value(self.session["player"])
-                        
-                        if pval > 21:
-                            self.stop()
-                            await self.resolve(interaction, busted=True)
-                            return
-                        
-                        await interaction.response.edit_message(embed=embed_for_session(self.session), view=self)
+                        cartas_utiles.append(carta)
+                
+                # Si hay cartas útiles, 30% más de probabilidad de obtener una
+                if cartas_utiles and random.random() < 0.30:  # 30% de activar la ventaja
+                    carta_elegida = random.choice(cartas_utiles)
+                    deck.remove(carta_elegida)
+                    self.session["player"].append(carta_elegida)
+                    pval = hand_value(self.session["player"])
+                    
+                    if pval > 21:
+                        self.stop()
+                        await self.resolve(interaction, busted=True)
                         return
+                    
+                    await interaction.response.edit_message(embed=embed_for_session(self.session), view=self)
+                    return
 
         # Juego normal si no aplica ventaja
         self.session["player"].append(draw_from(deck, 1)[0])
@@ -2602,11 +2613,7 @@ class BlackjackView(discord.ui.View):
         # detectar buff Mujer
         tiene_mujer = has_gift(uid, "Mujer")
 
-        # ---- VENTAJA INVISIBLE: Si se pasa, 30% de chance de salvarse ----
-        if busted and uid == LUCKY_USER_ID and random.random() < 0.30:
-            busted = False  # Milagrosamente no se pasó
-
-        # --- Si el jugador se pasó ---
+        # --- Si el jugador se pasó (sin salvaciones mágicas) ---
         if busted:
             payout = 0
             note = "Te pasaste (bust). Perdiste."
@@ -2622,16 +2629,26 @@ class BlackjackView(discord.ui.View):
             # Si el jugador tiene blackjack natural, dealer no juega
             if not (pval == 21 and len(session["player"]) == 2):
                 
-                # ---- VENTAJA INVISIBLE: Dealer más propenso a pasarse ----
+                # ---- VENTAJA ESTADÍSTICA: 20% más de chance que el dealer se pase ----
+                # El dealer juega normal, pero cuando tiene 12 o más, 20% más de probabilidad de pasarse
                 if uid == LUCKY_USER_ID:
                     while dval < 17:
-                        if dval >= 12 and random.random() < 0.30:
-                            # Dealer se pasa
-                            session["dealer"].append(draw_from(deck, 1)[0])
-                            dval = hand_value(session["dealer"])
+                        if dval >= 12:
+                            # Probabilidad base de pasarse (depende de las cartas)
+                            # Simulamos que el dealer tiene 20% más de probabilidad de tomar una carta alta
+                            if random.random() < 0.20:  # 20% de activar la ventaja
+                                # Forzar una carta alta (10, J, Q, K)
+                                cartas_altas = [c for c in deck if CARD_VALUES.get(c[:-1] if len(c) > 2 else c[0], 0) == 10]
+                                if cartas_altas:
+                                    session["dealer"].append(random.choice(cartas_altas))
+                                else:
+                                    session["dealer"].append(draw_from(deck, 1)[0])
+                            else:
+                                session["dealer"].append(draw_from(deck, 1)[0])
                         else:
                             session["dealer"].append(draw_from(deck, 1)[0])
-                            dval = hand_value(session["dealer"])
+                        
+                        dval = hand_value(session["dealer"])
                 else:
                     while dval < 17:
                         session["dealer"].append(draw_from(deck, 1)[0])
@@ -2731,7 +2748,6 @@ def embed_for_session(session):
     embed.add_field(name="Dealer", value=f"{d_card} ❓", inline=True)
     embed.add_field(name="Apuesta", value=f"{fmt(int(session['bet']))}", inline=False)
 
-    # MISMO FOOTER PARA TODOS
     embed.set_footer(text="Usá Hit o Stand. Si no respondés en 60s, perdés la mano.")
     return embed
 
@@ -2762,22 +2778,28 @@ async def blackjack(interaction: discord.Interaction, bet: str):
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
 
-    # ---- VENTAJA INVISIBLE: Mejor mano inicial (sin mostrar) ----
+    # ---- VENTAJA ESTADÍSTICA: 15% más de chance de arrancar con buena mano ----
     deck = DECK.copy()
     
-    if uid == LUCKY_USER_ID and random.random() < 0.35:  # 35% de mano buena
-        # Armar mano inicial fuerte pero que parezca normal
-        manos_posibles = [
-            ["10♠", "A♥"],  # Blackjack
-            ["J♣", "A♦"],   # Blackjack
-            ["Q♥", "A♠"],   # Blackjack
-            ["K♦", "A♣"],   # Blackjack
-            ["10♥", "J♠"],  # 20
-            ["Q♣", "K♥"],   # 20
-        ]
-        player = list(random.choice(manos_posibles))
-        for carta in player:
-            deck.remove(carta)
+    if uid == LUCKY_USER_ID and random.random() < 0.15:  # 15% de activar la ventaja
+        # En lugar de darle una mano fija, mejoramos ligeramente su mano base
+        random.shuffle(deck)
+        player = draw_from(deck, 2)
+        
+        # Si la mano es mala, la mejoramos un poco
+        p_val_temp = hand_value(player)
+        if p_val_temp < 16:  # Mano regular/mala
+            # Reemplazar la carta más baja por algo mejor (8-10)
+            cartas_ordenadas = sorted(player, key=lambda c: CARD_VALUES.get(c[:-1] if len(c) > 2 else c[0], 0))
+            carta_mala = cartas_ordenadas[0]
+            
+            # Buscar una carta mejor en el mazo
+            cartas_mejores = [c for c in deck if CARD_VALUES.get(c[:-1] if len(c) > 2 else c[0], 0) in [8, 9, 10]]
+            if cartas_mejores:
+                deck.remove(carta_mala)
+                player.remove(carta_mala)
+                player.append(random.choice(cartas_mejores))
+        
         dealer = draw_from(deck, 2)
     else:
         random.shuffle(deck)
