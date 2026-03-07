@@ -204,7 +204,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("si estas leyendo esto se actualizó el reco a la version 1.35" \
+    await interaction.followup.send("CRYPTO UPDATE" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -827,6 +827,7 @@ async def update_crypto_prices():
     quantity="Cantidad para buy/sell"
 )
 async def crypto(interaction: discord.Interaction, action: str, coin: str = None, quantity: float = None):
+
     if not await ensure_guild_or_reply(interaction):
         return
 
@@ -836,11 +837,13 @@ async def crypto(interaction: discord.Interaction, action: str, coin: str = None
     # STATUS
     # ============================
     if action == "status":
+
         if coin and coin.upper() in ("RSC", "CTC", "MMC"):
             sym = coin.upper()
 
             if plt:
                 prices = cryptos[sym]["history"]
+
                 plt.style.use("dark_background")
                 fig, ax = plt.subplots(figsize=(8, 3))
 
@@ -861,128 +864,163 @@ async def crypto(interaction: discord.Interaction, action: str, coin: str = None
                     title=f"{sym} — {cryptos[sym]['price']:,} monedas",
                     description="📊 Movimiento de precio (24h)"
                 )
+
                 embed.set_image(url=f"attachment://{sym}.png")
 
                 await interaction.response.send_message(embed=embed, file=file)
+
             else:
                 await interaction.response.send_message(f"{sym}: {cryptos[sym]['price']} monedas")
+
             return
 
         desc = "\n".join([
             f"**{s}** → {cryptos[s]['price']:,} monedas"
             for s in ("RSC", "CTC", "MMC")
         ])
-        await interaction.response.send_message(embed=discord.Embed(title="Criptos", description=desc))
+
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="Criptos",
+                description=desc
+            )
+        )
         return
 
+
     # ============================
-    # SELL
+    # BUY
     # ============================
-    if action == "sell":
+    if action == "buy":
+
+        uid = str(interaction.user.id)
+
         if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
             await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
             return
+
         if quantity is None or quantity <= 0:
             await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
             return
 
         sym = coin.upper()
+        price = cryptos[sym]["price"]
+        cost = round(price * quantity, 2)
+
+        async with balances_lock:
+
+            saldo = balances.get(uid, 0)
+
+            if saldo < cost:
+                await interaction.response.send_message(
+                    "❌ No tenés saldo suficiente.",
+                    ephemeral=True
+                )
+                return
+
+            balances[uid] -= cost
+            save_json(BALANCES_FILE, balances)
+
+        holders = cryptos["holders"]
+
+        if uid not in holders:
+            holders[uid] = {"RSC": 0, "CTC": 0, "MMC": 0}
+
+        holders[uid][sym] += quantity
+
+        save_cryptos(cryptos)
+
+        await interaction.response.send_message(
+            f"🟩 Compraste **{quantity:.4f} {sym}** por **{fmt(cost)}** monedas."
+        )
+        return
+
+
+    # ============================
+    # SELL
+    # ============================
+    if action == "sell":
+
+        if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
+            await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
+            return
+
+        if quantity is None or quantity <= 0:
+            await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+            return
+
         uid = str(interaction.user.id)
+        sym = coin.upper()
+
         holdings = cryptos["holders"].get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
 
         if holdings[sym] < quantity:
-            await interaction.response.send_message("❌ No tenés suficiente para vender.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ No tenés suficiente para vender.",
+                ephemeral=True
+            )
             return
 
         price = cryptos[sym]["price"]
         gain = round(price * quantity, 2)
 
         holdings[sym] -= quantity
+        cryptos["holders"][uid] = holdings
+
         save_cryptos(cryptos)
+
         await safe_add(uid, gain)
 
-        await interaction.response.send_message(f"🟥 Vendiste **{quantity:.4f} {sym}** y recibiste **{fmt(gain)}** monedas.")
+        await interaction.response.send_message(
+            f"🟥 Vendiste **{quantity:.4f} {sym}** y recibiste **{fmt(gain)}** monedas."
+        )
         return
 
+
     # ============================
-    # BOUGHT (portafolio)
+    # BOUGHT (PORTAFOLIO)
     # ============================
     if action == "bought":
+
         uid = str(interaction.user.id)
+
         holders = cryptos["holders"]
         u = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
 
         lines = []
+
         for s in ("RSC", "CTC", "MMC"):
             amt = u.get(s, 0)
+
             if amt > 0:
-                value = round(amt * cryptos[s]['price'], 2)
-                lines.append(f"**{s}** → {amt:.4f} (≈ {fmt(value)} monedas)")
+                value = round(amt * cryptos[s]["price"], 2)
+                lines.append(
+                    f"**{s}** → {amt:.4f} (≈ {fmt(value)} monedas)"
+                )
 
         if not lines:
-            await interaction.response.send_message("❌ No tenés cryptos.", ephemeral=True)
-            return
-
-        await interaction.response.send_message(embed=discord.Embed(
-            title="💼 Tu cartera",
-            description="\n".join(lines)
-        ))
-        return
-
-    await interaction.response.send_message("❌ Acción inválida.", ephemeral=True)
-
-    # ============================
-    # BUY
-    # ============================
-    if action == "buy":
-        uid = str(interaction.user.id)
-
-    if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
-        return await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
-
-    if quantity is None or quantity <= 0:
-        return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
-
-    sym = coin.upper()
-    price = cryptos[sym]["price"]
-    cost = round(price * quantity, 2)
-
-    async with balances_lock:
-        saldo = balances.get(uid, 0)
-
-        if saldo < cost:
-            return await interaction.response.send_message(
-                "❌ No tenés saldo suficiente.",
+            await interaction.response.send_message(
+                "❌ No tenés cryptos.",
                 ephemeral=True
             )
+            return
 
-        balances[uid] -= cost
-        save_json(BALANCES_FILE, balances)
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="💼 Tu cartera",
+                description="\n".join(lines)
+            )
+        )
+        return
 
-    # -------------------------
-    # SUMAR CRYPTO AL USUARIO
-    # -------------------------
-    holders = cryptos["holders"]
-    holders.setdefault(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
-    holders[uid][sym] += quantity
 
-    # -------------------------
-    # IMPACTO EN EL PRECIO
-    # -------------------------
-    impacto = quantity * 0.1
-    cryptos[sym]["price"] = round(cryptos[sym]["price"] + impacto, 2)
-
-    cryptos[sym]["history"].append(cryptos[sym]["price"])
-    if len(cryptos[sym]["history"]) > 288:
-        cryptos[sym]["history"].pop(0)
-
-    save_cryptos(cryptos)
-
+    # ============================
+    # ACCION INVALIDA
+    # ============================
     await interaction.response.send_message(
-        f"🟩 Compraste **{quantity:.4f} {sym}** por **{fmt(cost)}** monedas.\n"
-        f"📈 El precio subió a **{cryptos[sym]['price']:,}**"
+        "❌ Acción inválida.",
+        ephemeral=True
     )
-    return
 
 #--------------killcrypto-------------------
 @tree.command(name="killcrypto", description="⚙️ Administrar cryptos de un usuario (add, remove, set)")
