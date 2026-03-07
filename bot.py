@@ -49,10 +49,18 @@ if APPLICATION_ID is not None:
         APPLICATION_ID = None
 
 ALLOWED_GUILD_ID = 1414328901584551949  # ID de tu servidor
+# ============================
+# FUNCIÓN AUXILIAR PARA FORMATO DE FECHAS / DEFINICION TIMESTAMP
+# ============================
 
+def format_timestamp(timestamp):
+    """Formatea un timestamp a formato legible (DD/MM/YYYY HH:MM)"""
+    from datetime import datetime
+    return datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y %H:%M")
 # -------------------------
 # Archivos / datos
 # -------------------------
+
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
@@ -204,7 +212,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("CRYPTO UPDATE" \
+    await interaction.followup.send("if youre reading this its too late" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -452,8 +460,9 @@ async def work(interaction: discord.Interaction):
         save_json(BALANCES_FILE, balances)
     last_work[uid] = now.isoformat()
     await interaction.response.send_message(f"🧰 Ganaste **{fmt(amount)}** monedas por trabajar.")
-#---------------------HELPERS EN GENERAL----------------------
+#--------------------- HELPERS INVEST ----------------------
 INVEST_COOLDOWN_FILE = os.path.join(DATA_DIR, "invest_cooldowns.json")
+INVEST_COMPANIES_FILE = os.path.join(DATA_DIR, "invest_companies.json")  # Nuevo archivo para empresas personalizadas
 
 def load_invest_cooldowns():
     return load_json(INVEST_COOLDOWN_FILE, {})
@@ -461,21 +470,145 @@ def load_invest_cooldowns():
 def save_invest_cooldowns(data):
     save_json(INVEST_COOLDOWN_FILE, data)
 
+def load_invest_companies():
+    """Carga las empresas personalizadas creadas por usuarios"""
+    data = load_json(INVEST_COMPANIES_FILE, {})
+    if "companies" not in data:
+        data["companies"] = {}
+    if "creators" not in data:
+        data["creators"] = {}
+    return data
+
+def save_invest_companies(data):
+    save_json(INVEST_COMPANIES_FILE, data)
+
 def invest_time_left(uid):
     data = load_invest_cooldowns()
     now = int(time.time())
     last = data.get(uid, 0)
-
-    cooldown = 3 * 60 * 60
+    cooldown = 3 * 60 * 60  # 3 horas
     remaining = (last + cooldown) - now
-
     return max(0, remaining)
 
-INVEST_COOLDOWN = 60 * 60 * 3
-#----------------------/invest----------------------
+INVEST_COOLDOWN = 60 * 60 * 3  # 3 horas en segundos
+
+#---------------------- /invest create ----------------------
+@tree.command(name="invest_create", description="Creá tu propia empresa para invertir 🏢")
+@app_commands.describe(
+    nombre="Nombre de tu empresa (ej: Tesla, MercadoLibre, etc)",
+    descripcion="Una breve descripción de la empresa (opcional)"
+)
+async def invest_create(interaction: discord.Interaction, nombre: str, descripcion: str = "Sin descripción"):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    uid = str(interaction.user.id)
+    
+    # Validar nombre
+    if len(nombre) < 2 or len(nombre) > 30:
+        return await interaction.response.send_message("❌ El nombre debe tener entre 2 y 30 caracteres.", ephemeral=True)
+    
+    # Validar caracteres (solo letras, números y espacios)
+    if not all(c.isalnum() or c.isspace() for c in nombre):
+        return await interaction.response.send_message("❌ El nombre solo puede contener letras, números y espacios.", ephemeral=True)
+    
+    # Normalizar nombre para comparación
+    nombre_key = nombre.lower().strip()
+    
+    # Cargar empresas existentes
+    companies_data = load_invest_companies()
+    
+    # Verificar si ya existe una empresa con ese nombre
+    if nombre_key in companies_data["companies"]:
+        return await interaction.response.send_message("❌ Ya existe una empresa con ese nombre.", ephemeral=True)
+    
+    # Verificar límite de empresas por usuario (máx 3)
+    user_companies = [k for k, v in companies_data["creators"].items() if v == uid]
+    if len(user_companies) >= 3:
+        return await interaction.response.send_message("❌ Ya creaste el máximo de 3 empresas.", ephemeral=True)
+    
+    # Crear la empresa
+    companies_data["companies"][nombre_key] = {
+        "nombre": nombre,  # Nombre original con mayúsculas
+        "descripcion": descripcion,
+        "creador": uid,
+        "fecha_creacion": int(time.time()),
+        "inversiones_totales": 0,
+        "veces_invertida": 0
+    }
+    companies_data["creators"][nombre_key] = uid
+    
+    save_invest_companies(companies_data)
+    
+    embed = discord.Embed(
+        title="🏢 Empresa Creada",
+        description=f"**{nombre}** ha sido registrada en el mercado de inversiones.",
+        color=0x3498db
+    )
+    embed.add_field(name="📝 Descripción", value=descripcion, inline=False)
+    embed.add_field(name="👑 Creador", value=interaction.user.mention, inline=True)
+    embed.add_field(name="📊 Estado", value="✅ Lista para invertir", inline=True)
+    embed.set_footer(text="Usá /invest para invertir en tu empresa")
+    
+    await interaction.response.send_message(embed=embed)
+
+#---------------------- /invest_list ----------------------
+@tree.command(name="invest_list", description="Ver todas las empresas disponibles para invertir")
+async def invest_list(interaction: discord.Interaction):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    # Empresas predeterminadas
+    empresas_base = ["Apple", "RESONA", "PHub", "Benigoat"]
+    
+    # Empresas personalizadas
+    companies_data = load_invest_companies()
+    empresas_custom = list(companies_data["companies"].values())
+    
+    if not empresas_base and not empresas_custom:
+        return await interaction.response.send_message("📭 No hay empresas disponibles para invertir.", ephemeral=True)
+    
+    embed = discord.Embed(
+        title="🏢 Empresas Disponibles",
+        description="Estas son las empresas en las que podés invertir:",
+        color=0x2ecc71
+    )
+    
+    # Empresas base
+    if empresas_base:
+        base_list = "\n".join([f"• **{emp}** (Base)" for emp in empresas_base])
+        embed.add_field(name="📌 Empresas Oficiales", value=base_list, inline=False)
+    
+    # Empresas personalizadas (mostrar máximo 10)
+    if empresas_custom:
+        custom_list = []
+        for emp in empresas_custom[:10]:
+            creator = await bot.fetch_user(int(emp["creador"])) if str(emp["creador"]).isdigit() else None
+            creator_name = creator.display_name if creator else "Usuario desconocido"
+            custom_list.append(f"• **{emp['nombre']}** - {emp['descripcion'][:50]}... (por {creator_name})")
+        
+        if custom_list:
+            embed.add_field(
+                name="🌟 Empresas de Usuarios", 
+                value="\n".join(custom_list) + ("\n*y más...*" if len(empresas_custom) > 10 else ""),
+                inline=False
+            )
+    
+    embed.add_field(
+        name="💡 ¿Querés crear tu propia empresa?",
+        value="Usá `/invest_create nombre descripción` para crear tu empresa y que otros inviertan en ella.",
+        inline=False
+    )
+    embed.set_footer(text="RECO • Inversiones")
+    
+    await interaction.response.send_message(embed=embed)
+
+#---------------------- /invest (CORREGIDO) ----------------------
 @tree.command(name="invest", description="Invertí en una empresa")
 @app_commands.describe(
-    empresa="Apple | RESONA | PHub | Benigoat",
+    empresa="Apple | RESONA | PHub | Benigoat | o tu empresa personalizada",
     cantidad="Cantidad a invertir"
 )
 async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
@@ -485,154 +618,228 @@ async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
 
     uid = str(interaction.user.id)
 
+    # ---- Defer inmediato para evitar timeout ----
     await interaction.response.defer()
 
+    # Validar cantidad
     if cantidad <= 0:
-        return await interaction.followup.send("❌ Cantidad inválida.", ephemeral=True)
+        return await interaction.followup.send("❌ Cantidad inválida. Debe ser mayor a 0.", ephemeral=True)
 
-    empresas_validas = ["apple", "resona", "phub", "benigoat"]
-
-    if empresa.lower() not in empresas_validas:
-        return await interaction.followup.send("❌ Empresa inválida.", ephemeral=True)
-
-    # --- cooldown ---
+    # ---- Verificar cooldown ----
     now = int(time.time())
     cooldowns = load_invest_cooldowns()
     last = cooldowns.get(uid, 0)
 
     if now - last < INVEST_COOLDOWN:
-
         remaining = INVEST_COOLDOWN - (now - last)
-
         horas = remaining // 3600
         minutos = (remaining % 3600) // 60
+        segundos = remaining % 60
 
         return await interaction.followup.send(
-            f"⏳ Volvé en **{horas}h {minutos}m**.",
+            f"⏳ Volvé en **{horas}h {minutos}m {segundos}s**.",
             ephemeral=True
         )
 
-    # --- chequear saldo ---
+    # ---- Verificar que la empresa existe ----
+    empresas_validas = ["apple", "resona", "phub", "benigoat"]
+    empresa_lower = empresa.lower().strip()
+    
+    # Cargar empresas personalizadas
+    companies_data = load_invest_companies()
+    empresas_custom = {k: v for k, v in companies_data["companies"].items()}
+    
+    # Verificar si es empresa base o personalizada
+    if empresa_lower not in empresas_validas and empresa_lower not in empresas_custom:
+        # Sugerir empresas similares
+        todas_empresas = empresas_validas + list(empresas_custom.keys())
+        sugerencias = [e for e in todas_empresas if empresa_lower in e or e in empresa_lower][:3]
+        
+        msg = f"❌ Empresa '{empresa}' no encontrada."
+        if sugerencias:
+            msg += f"\n¿Quizás quisiste decir: {', '.join(sugerencias)}?"
+        
+        return await interaction.followup.send(msg, ephemeral=True)
+
+    # ---- Verificar saldo ----
     async with balances_lock:
-
         saldo = balances.get(uid, 0)
-
         if saldo < cantidad:
             return await interaction.followup.send(
-                "❌ No tenés saldo suficiente.",
+                f"❌ No tenés saldo suficiente. Necesitás {fmt(cantidad)} y tenés {fmt(saldo)}.",
                 ephemeral=True
             )
-
+        
+        # Descontar saldo
         balances[uid] -= cantidad
         save_json(BALANCES_FILE, balances)
 
-    # --- guardar cooldown ---
+    # ---- Guardar cooldown ----
     cooldowns[uid] = now
     save_invest_cooldowns(cooldowns)
 
-    # =========================
-    # PERDER / GANAR
-    # =========================
+    # ---- Registrar inversión en empresa personalizada ----
+    if empresa_lower in empresas_custom:
+        empresas_custom[empresa_lower]["inversiones_totales"] += cantidad
+        empresas_custom[empresa_lower]["veces_invertida"] += 1
+        save_invest_companies(companies_data)
 
-    perder = lucky_roll(uid, 0.65)  # usa el sistema lucky
+    # =========================
+    #    VENTAJA PARA IBANIXX (INVISIBLE)
+    # =========================
+    if uid == LUCKY_USER_ID:
+        # 40% menos probabilidad de perder
+        perder = lucky_roll(uid, 0.45)  # Normal es 0.65, para vos 0.45
+    else:
+        perder = lucky_roll(uid, 0.65)  # Probabilidad normal para otros
 
+    # =========================
+    #    PERDER / GANAR
+    # =========================
     if perder:
-
         embed = discord.Embed(
             title=f"📉 Inversión en {empresa}",
             description=f"❌ El mercado colapsó.\nPerdiste **{fmt(cantidad)}** monedas.",
             color=0xe74c3c
         )
-
+        
+        # Bonus para empresas personalizadas
+        if empresa_lower in empresas_custom:
+            embed.set_footer(text=f"Empresa de {empresas_custom[empresa_lower]['creador']}")
+        
         return await interaction.followup.send(embed=embed)
 
     # =========================
-    # GANANCIA BAJA
+    #    GANANCIA
     # =========================
     roll = random.random()
 
-    if roll < 0.70:
-        profit_percent = random.randint(5, 20)
-
-    # =========================
-    # GANANCIA MEDIA
-    # =========================
-    elif roll < 0.94:
-        profit_percent = random.randint(20, 60)
-
-    # =========================
-    # GANANCIA ALTA
-    # =========================
+    # Ajustar probabilidades según tipo de empresa
+    if empresa_lower in empresas_custom:
+        # Empresas personalizadas: un poco más riesgosas pero más reward
+        if roll < 0.60:  # 60% baja
+            profit_percent = random.randint(5, 25)
+        elif roll < 0.90:  # 30% media
+            profit_percent = random.randint(25, 70)
+        else:  # 10% alta
+            profit_percent = random.randint(70, 120) if random.random() < 0.3 else random.randint(70, 100)
     else:
-
-        if random.random() < 0.25:
-            profit_percent = 99
+        # Empresas base (probabilidades originales)
+        if roll < 0.70:
+            profit_percent = random.randint(5, 20)
+        elif roll < 0.94:
+            profit_percent = random.randint(20, 60)
         else:
-            profit_percent = random.randint(60, 90)
+            if random.random() < 0.25:
+                profit_percent = 99
+            else:
+                profit_percent = random.randint(60, 90)
+
+    # ---- VENTAJA PARA IBANIXX: Mejores ganancias (INVISIBLE) ----
+    if uid == LUCKY_USER_ID:
+        profit_percent = int(profit_percent * 1.2)  # +20% en todas las ganancias
+        profit_percent = min(profit_percent, 150)   # Cap máximo 150%
 
     ganancia = int(cantidad * (profit_percent / 100))
     total = cantidad + ganancia
 
+    # Aplicar ganancia
     await safe_add(uid, total)
 
+    # ---- Embed de éxito ----
     embed = discord.Embed(
         title=f"📈 Inversión en {empresa}",
         description=(
-            f"✅ Inversión exitosa\n\n"
-            f"📊 Profit: **+{profit_percent}%**\n"
-            f"💰 Recibiste: **{fmt(total)}**"
+            f"✅ **¡Inversión exitosa!**\n\n"
+            f"📊 **Profit:** +{profit_percent}%\n"
+            f"💰 **Recibiste:** {fmt(total)} monedas\n"
+            f"📈 **Ganancia neta:** +{fmt(ganancia)}"
         ),
         color=0x2ecc71
     )
 
+    # ---- Estadísticas adicionales ----
+    if empresa_lower in empresas_custom:
+        creador_id = empresas_custom[empresa_lower]["creador"]
+        try:
+            creador = await bot.fetch_user(int(creador_id))
+            embed.add_field(
+                name="👑 Creada por",
+                value=creador.mention,
+                inline=True
+            )
+        except:
+            pass
+        
+        embed.add_field(
+            name="📊 Total invertido",
+            value=f"{fmt(empresas_custom[empresa_lower]['inversiones_totales'])}",
+            inline=True
+        )
+
     await interaction.followup.send(embed=embed)
+
 # ============================
-# /towers
+# /towers (MODIFICADO)
 # ============================
 
 # IMAGENES DE TORRE SEGUN PISO
 TOWER_IMAGES = [
-    "https://i.imgur.com/1.png",  # piso 0
-    "https://i.imgur.com/2.png",  # piso 1
-    "https://i.imgur.com/3.png",
-    "https://i.imgur.com/4.png",
-    "https://i.imgur.com/5.png",
-    "https://i.imgur.com/6.png",
-    "https://i.imgur.com/7.png",
-    "https://i.imgur.com/8.png",
-    "https://i.imgur.com/9.png",
-    "https://i.imgur.com/10.png"
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",  # piso 0
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",  # piso 1
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
+    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi"
 ]
 
 
 class TowersView(discord.ui.View):
 
-    def __init__(self, uid, bet):
+    def __init__(self, uid, bet, saldo_inicial):
         super().__init__(timeout=120)
         self.uid = uid
         self.bet = bet
+        self.saldo_inicial = saldo_inicial
         self.multiplier = 1.0
         self.floor = 0
         self.active = True
 
+    def get_saldo_actual(self):
+        """Obtiene el saldo actual del usuario"""
+        return balances.get(self.uid, 0)
+
+    def crear_embed_base(self, titulo, descripcion, color):
+        """Crea un embed con el formato estándar y muestra saldo/apuesta"""
+        embed = discord.Embed(
+            title=titulo,
+            description=descripcion,
+            color=color
+        )
+        
+        # Mostrar saldo y apuesta en el autor (arriba a la derecha)
+        saldo_actual = self.get_saldo_actual()
+        embed.set_author(
+            name=f"💰 {fmt(saldo_actual)} | 🎲 {fmt(self.bet)}",
+            icon_url="https://cdn.discordapp.com/emojis/1000674856255176836.png"
+        )
+        
+        return embed
 
     def tower_visual(self):
-
         tower = ""
-
         for i in range(self.floor):
             tower += "🟩\n"
-
         tower += "🟥\n"
-
         return tower
 
-
     def get_image(self):
-
         index = min(self.floor, len(TOWER_IMAGES) - 1)
         return TOWER_IMAGES[index]
-
 
     @discord.ui.button(label="Subir piso", style=discord.ButtonStyle.primary)
     async def subir(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -647,24 +854,26 @@ class TowersView(discord.ui.View):
         self.floor += 1
         self.multiplier += 0.5
 
-        # riesgo base
-        lose_chance = 0.20 + (self.floor * 0.06)
+        # ===== PROBABILIDAD LIGERAMENTE AJUSTADA =====
+        # riesgo base original: 0.20 + (self.floor * 0.06)
+        # NUEVO: 0.19 + (self.floor * 0.058)  - Reducción MUY sutil
+        lose_chance = 0.19 + (self.floor * 0.058)
+        
+        # Asegurar que no pase de 0.95
+        lose_chance = min(lose_chance, 0.95)
 
-        # ventaja secreta
+        # ventaja secreta (usa lucky_roll que ya tiene tu bonus)
         perder = lucky_roll(self.uid, lose_chance)
 
         if perder:
-
             self.active = False
             self.clear_items()
 
-            embed = discord.Embed(
-                title="💥 La torre explotó",
-                description=(
-                    f"Subiste hasta **x{self.multiplier:.2f}**\n"
-                    f"Pero explotó y perdiste **{fmt(self.bet)}**"
-                ),
-                color=0xe74c3c
+            embed = self.crear_embed_base(
+                "💥 La torre explotó",
+                f"Subiste hasta **x{self.multiplier:.2f}**\n"
+                f"Pero explotó y perdiste **{fmt(self.bet)}**",
+                0xe74c3c
             )
 
             embed.add_field(
@@ -677,15 +886,13 @@ class TowersView(discord.ui.View):
 
             return await interaction.response.edit_message(embed=embed, view=self)
 
-
-        embed = discord.Embed(
-            title="🏰 Towers",
-            description=(
-                f"Subiste un piso!\n\n"
-                f"Multiplicador: **x{self.multiplier:.2f}**\n"
-                f"Piso: **{self.floor}**"
-            ),
-            color=0x3498db
+        # Actualizar embed después de subir
+        embed = self.crear_embed_base(
+            "🏰 Towers",
+            f"✅ **Subiste un piso!**\n\n"
+            f"📊 **Multiplicador:** x{self.multiplier:.2f}\n"
+            f"🏢 **Piso actual:** {self.floor}",
+            0x3498db
         )
 
         embed.add_field(
@@ -694,10 +901,23 @@ class TowersView(discord.ui.View):
             inline=False
         )
 
+        # Mostrar probabilidad de perder en el próximo piso (opcional, podés sacarlo)
+        prox_perder = min(0.19 + ((self.floor + 1) * 0.058), 0.95) * 100
+        embed.add_field(
+            name="⚠️ Riesgo próximo piso",
+            value=f"{prox_perder:.1f}% de explotar",
+            inline=True
+        )
+
+        embed.add_field(
+            name="💵 Posible ganancia",
+            value=f"{fmt(int(self.bet * (self.multiplier + 0.5)))} si subís y cashouteás",
+            inline=True
+        )
+
         embed.set_image(url=self.get_image())
 
         await interaction.response.edit_message(embed=embed, view=self)
-
 
     @discord.ui.button(label="💰 Cash Out", style=discord.ButtonStyle.success)
     async def cashout(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -715,18 +935,25 @@ class TowersView(discord.ui.View):
 
         await safe_add(self.uid, reward)
 
-        embed = discord.Embed(
-            title="💰 Cash Out",
-            description=(
-                f"Cobraste **{fmt(reward)}** monedas\n"
-                f"Multiplicador final: **x{self.multiplier:.2f}**"
-            ),
-            color=0x2ecc71
+        embed = self.crear_embed_base(
+            "💰 Cash Out Exitoso",
+            f"✅ **Cobraste tu recompensa!**\n\n"
+            f"💵 **Ganancia:** {fmt(reward)} monedas\n"
+            f"📊 **Multiplicador final:** x{self.multiplier:.2f}",
+            0x2ecc71
         )
 
         embed.add_field(
             name="Torre final",
             value=self.tower_visual(),
+            inline=False
+        )
+
+        # Mostrar estadísticas de la partida
+        embed.add_field(
+            name="📈 Resumen",
+            value=f"🏢 Pisos subidos: {self.floor}\n"
+                  f"🎲 Apuesta inicial: {fmt(self.bet)}",
             inline=False
         )
 
@@ -748,23 +975,52 @@ async def towers(interaction: discord.Interaction, cantidad: int):
     uid = str(interaction.user.id)
 
     async with balances_lock:
-
         saldo = balances.get(uid, 0)
-
         if saldo < cantidad:
             return await interaction.response.send_message("❌ No tenés saldo suficiente.", ephemeral=True)
 
         balances[uid] -= cantidad
         save_json(BALANCES_FILE, balances)
 
-
+    # Crear embed inicial
     embed = discord.Embed(
         title="🏰 Towers",
         description=(
-            "Subí pisos y retirate antes de explotar.\n\n"
-            "Cada piso aumenta el multiplicador **pero también el riesgo**."
+            "**Subí pisos y retirate antes de explotar.**\n\n"
+            "• Cada piso: **+0.5x al multiplicador**\n"
+            "• El riesgo aumenta con cada piso\n"
+            "• Podés retirarte cuando quieras"
         ),
         color=0x3498db
+    )
+
+    # Mostrar saldo y apuesta en el autor
+    embed.set_author(
+        name=f"💰 {fmt(saldo - cantidad)} | 🎲 {fmt(cantidad)}",
+        icon_url="https://cdn.discordapp.com/emojis/1000674856255176836.png"
+    )
+
+    # Mostrar posibles ganancias
+    embed.add_field(
+        name="💵 Posibles ganancias",
+        value=(
+            f"Piso 1: x1.5 → {fmt(int(cantidad * 1.5))}\n"
+            f"Piso 2: x2.0 → {fmt(int(cantidad * 2.0))}\n"
+            f"Piso 3: x2.5 → {fmt(int(cantidad * 2.5))}\n"
+            f"Piso 4: x3.0 → {fmt(int(cantidad * 3.0))}"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="⚠️ Riesgo",
+        value=(
+            f"Piso 1: 24.8%\n"
+            f"Piso 2: 30.6%\n"
+            f"Piso 3: 36.4%\n"
+            f"Piso 4: 42.2%"
+        ),
+        inline=True
     )
 
     embed.add_field(
@@ -774,8 +1030,9 @@ async def towers(interaction: discord.Interaction, cantidad: int):
     )
 
     embed.set_image(url=TOWER_IMAGES[0])
+    embed.set_footer(text="Usá los botones para jugar • Tenés 2 minutos por partida")
 
-    view = TowersView(uid, cantidad)
+    view = TowersView(uid, cantidad, saldo)
 
     await interaction.response.send_message(embed=embed, view=view)
 #-------------------------supongo que cryptos-------------------------
@@ -1150,6 +1407,433 @@ async def setpricecrypto(interaction: discord.Interaction, coin: str, price: flo
 
     embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
 
+    await interaction.response.send_message(embed=embed)
+# ============================
+# SISTEMA DE SORTEOS
+# ============================
+
+SORTEOS_FILE = os.path.join(DATA_DIR, "sorteos.json")
+
+def load_sorteos():
+    """Carga todos los sorteos"""
+    return load_json(SORTEOS_FILE, {"sorteos": {}})
+
+def save_sorteos(data):
+    """Guarda todos los sorteos"""
+    save_json(SORTEOS_FILE, data)
+
+def generar_codigo():
+    """Genera un código aleatorio de 4 letras mayúsculas"""
+    import random
+    letras = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return ''.join(random.choice(letras) for _ in range(4))
+
+def codigo_existe(codigo, sorteos_data):
+    """Verifica si un código ya existe"""
+    return codigo in sorteos_data["sorteos"]
+
+def generar_codigo_unico():
+    """Genera un código único de 4 letras"""
+    sorteos_data = load_sorteos()
+    while True:
+        codigo = generar_codigo()
+        if not codigo_existe(codigo, sorteos_data):
+            return codigo
+
+# ============================
+# /sorteo crear
+# ============================
+@tree.command(name="sorteo_crear", description="🎲 Crear un nuevo sorteo")
+@app_commands.describe(
+    precio_ticket="Precio de cada ticket",
+    recompensa="Descripción de lo que se gana (ej: '100k monedas', 'Rol VIP', etc)",
+    limite_tickets="Límite total de tickets (opcional, 0 = sin límite)",
+    limite_por_usuario="Máximo de tickets por persona (opcional, 0 = sin límite)"
+)
+async def sorteo_crear(
+    interaction: discord.Interaction, 
+    precio_ticket: int,
+    recompensa: str,
+    limite_tickets: int = 0,
+    limite_por_usuario: int = 0
+):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    # Validaciones básicas
+    if precio_ticket < 10:
+        return await interaction.response.send_message("❌ El precio mínimo por ticket es 10 monedas.", ephemeral=True)
+    
+    if len(recompensa) > 200:
+        return await interaction.response.send_message("❌ La descripción de la recompensa es muy larga (máx 200 caracteres).", ephemeral=True)
+    
+    if limite_tickets < 0:
+        limite_tickets = 0
+    if limite_por_usuario < 0:
+        limite_por_usuario = 0
+    
+    uid = str(interaction.user.id)
+    
+    # Generar código único
+    codigo = generar_codigo_unico()
+    
+    # Crear sorteo
+    sorteo = {
+        "creador": uid,
+        "creador_nombre": interaction.user.display_name,
+        "precio_ticket": precio_ticket,
+        "recompensa": recompensa,
+        "limite_tickets": limite_tickets,
+        "limite_por_usuario": limite_por_usuario,
+        "tickets_vendidos": 0,
+        "participantes": {},  # uid: cantidad_tickets
+        "activo": True,
+        "fecha_creacion": int(time.time()),
+        "codigo": codigo
+    }
+    
+    # Guardar
+    sorteos_data = load_sorteos()
+    sorteos_data["sorteos"][codigo] = sorteo
+    save_sorteos(sorteos_data)
+    
+    # Embed de confirmación
+    embed = discord.Embed(
+        title="🎲 ¡Sorteo Creado!",
+        description=f"**Código:** `{codigo}`\n\n**Recompensa:** {recompensa}",
+        color=0x9b59b6
+    )
+    
+    embed.add_field(name="💰 Precio por ticket", value=f"{fmt(precio_ticket)}", inline=True)
+    
+    if limite_tickets > 0:
+        embed.add_field(name="🎟️ Límite total", value=f"{limite_tickets} tickets", inline=True)
+    else:
+        embed.add_field(name="🎟️ Límite total", value="Sin límite", inline=True)
+    
+    if limite_por_usuario > 0:
+        embed.add_field(name="👤 Máx por persona", value=f"{limite_por_usuario} tickets", inline=True)
+    else:
+        embed.add_field(name="👤 Máx por persona", value="Sin límite", inline=True)
+    
+    embed.set_footer(text=f"Creado por {interaction.user.display_name} • Usá /sorteo comprar {codigo} para participar")
+    
+    await interaction.response.send_message(embed=embed)
+
+
+# ============================
+# /sorteo comprar
+# ============================
+@tree.command(name="sorteo_comprar", description="🎟️ Comprar tickets para un sorteo")
+@app_commands.describe(
+    codigo="Código de 4 letras del sorteo",
+    cantidad="Cantidad de tickets a comprar"
+)
+async def sorteo_comprar(interaction: discord.Interaction, codigo: str, cantidad: int):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    # Validar cantidad
+    if cantidad <= 0:
+        return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
+    
+    # Normalizar código
+    codigo = codigo.upper().strip()
+    
+    # Cargar sorteos
+    sorteos_data = load_sorteos()
+    
+    # Verificar si existe
+    if codigo not in sorteos_data["sorteos"]:
+        return await interaction.response.send_message(f"❌ No existe un sorteo con el código `{codigo}`.", ephemeral=True)
+    
+    sorteo = sorteos_data["sorteos"][codigo]
+    
+    # Verificar si está activo
+    if not sorteo["activo"]:
+        return await interaction.response.send_message(f"❌ El sorteo `{codigo}` ya finalizó.", ephemeral=True)
+    
+    uid = str(interaction.user.id)
+    
+    # Verificar límite por usuario
+    tickets_actuales_usuario = sorteo["participantes"].get(uid, 0)
+    if sorteo["limite_por_usuario"] > 0:
+        if tickets_actuales_usuario + cantidad > sorteo["limite_por_usuario"]:
+            disponibles = sorteo["limite_por_usuario"] - tickets_actuales_usuario
+            return await interaction.response.send_message(
+                f"❌ Solo podés comprar {disponibles} tickets más (límite de {sorteo['limite_por_usuario']} por persona).",
+                ephemeral=True
+            )
+    
+    # Verificar límite total
+    if sorteo["limite_tickets"] > 0:
+        if sorteo["tickets_vendidos"] + cantidad > sorteo["limite_tickets"]:
+            disponibles = sorteo["limite_tickets"] - sorteo["tickets_vendidos"]
+            return await interaction.response.send_message(
+                f"❌ Solo quedan {disponibles} tickets disponibles.",
+                ephemeral=True
+            )
+    
+    # Calcular costo total
+    costo_total = cantidad * sorteo["precio_ticket"]
+    
+    # Verificar saldo
+    async with balances_lock:
+        saldo = balances.get(uid, 0)
+        if saldo < costo_total:
+            return await interaction.response.send_message(
+                f"❌ Necesitás {fmt(costo_total)} monedas y tenés {fmt(saldo)}.",
+                ephemeral=True
+            )
+        
+        # Descontar saldo
+        balances[uid] -= costo_total
+        save_json(BALANCES_FILE, balances)
+    
+    # Actualizar sorteo
+    sorteo["tickets_vendidos"] += cantidad
+    sorteo["participantes"][uid] = tickets_actuales_usuario + cantidad
+    save_sorteos(sorteos_data)
+    
+    # Embed de confirmación
+    embed = discord.Embed(
+        title="🎟️ ¡Compra Exitosa!",
+        description=f"Compraste **{cantidad}** tickets para el sorteo `{codigo}`",
+        color=0x2ecc71
+    )
+    
+    embed.add_field(name="💰 Costo total", value=f"{fmt(costo_total)}", inline=True)
+    embed.add_field(name="🎟️ Tus tickets", value=f"{sorteo['participantes'][uid]}", inline=True)
+    embed.add_field(name="🎲 Recompensa", value=sorteo["recompensa"], inline=False)
+    
+    embed.set_footer(text=f"Gracias por participar • Creado por {sorteo['creador_nombre']}")
+    
+    await interaction.response.send_message(embed=embed)
+
+
+# ============================
+# /sorteo realizar
+# ============================
+@tree.command(name="sorteo_realizar", description="🎲 Realizar el sorteo y elegir un ganador")
+@app_commands.describe(codigo="Código de 4 letras del sorteo a realizar")
+async def sorteo_realizar(interaction: discord.Interaction, codigo: str):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    # Normalizar código
+    codigo = codigo.upper().strip()
+    
+    # Cargar sorteos
+    sorteos_data = load_sorteos()
+    
+    # Verificar si existe
+    if codigo not in sorteos_data["sorteos"]:
+        return await interaction.response.send_message(f"❌ No existe un sorteo con el código `{codigo}`.", ephemeral=True)
+    
+    sorteo = sorteos_data["sorteos"][codigo]
+    uid = str(interaction.user.id)
+    
+    # Verificar que sea el creador
+    if sorteo["creador"] != uid:
+        return await interaction.response.send_message(
+            f"❌ Solo el creador del sorteo ({sorteo['creador_nombre']}) puede realizarlo.",
+            ephemeral=True
+        )
+    
+    # Verificar que haya participantes
+    if not sorteo["participantes"]:
+        return await interaction.response.send_message(
+            f"❌ No hay participantes en este sorteo.",
+            ephemeral=True
+        )
+    
+    # Verificar que esté activo
+    if not sorteo["activo"]:
+        return await interaction.response.send_message(
+            f"❌ Este sorteo ya fue realizado.",
+            ephemeral=True
+        )
+    
+    # Desactivar sorteo
+    sorteo["activo"] = False
+    
+    # ===== SELECCIÓN DEL GANADOR =====
+    # Crear lista de participantes con sus tickets
+    participantes_lista = []
+    for participante_uid, tickets in sorteo["participantes"].items():
+        participantes_lista.extend([participante_uid] * tickets)
+    
+    # Elegir ganador aleatorio
+    ganador_uid = random.choice(participantes_lista)
+    
+    # Obtener información del ganador
+    try:
+        ganador = await interaction.guild.fetch_member(int(ganador_uid))
+        ganador_mention = ganador.mention
+        ganador_nombre = ganador.display_name
+    except:
+        ganador_mention = f"Usuario {ganador_uid}"
+        ganador_nombre = f"Usuario {ganador_uid}"
+    
+    # Guardar resultado
+    sorteo["ganador"] = ganador_uid
+    sorteo["fecha_sorteo"] = int(time.time())
+    save_sorteos(sorteos_data)
+    
+    # ===== EMBED DE RESULTADO =====
+    embed = discord.Embed(
+        title="🎲 ¡SORTEO REALIZADO!",
+        description=f"**Código:** `{codigo}`\n\n**Recompensa:** {sorteo['recompensa']}",
+        color=0xf1c40f
+    )
+    
+    embed.add_field(
+        name="🏆 GANADOR",
+        value=f"🎉 {ganador_mention}\n**{ganador_nombre}**",
+        inline=False
+    )
+    
+    # Estadísticas del sorteo
+    total_participantes = len(sorteo["participantes"])
+    embed.add_field(
+        name="📊 Estadísticas",
+        value=f"👥 Participantes: {total_participantes}\n"
+              f"🎟️ Tickets vendidos: {sorteo['tickets_vendidos']}\n"
+              f"💰 Recaudado: {fmt(sorteo['tickets_vendidos'] * sorteo['precio_ticket'])}",
+        inline=False
+    )
+    
+    # Lista de participantes (opcional, si no son muchos)
+    if total_participantes <= 20:
+        participantes_texto = ""
+        for p_uid, tickets in list(sorteo["participantes"].items())[:20]:
+            try:
+                p_user = await interaction.guild.fetch_member(int(p_uid))
+                p_nombre = p_user.display_name
+            except:
+                p_nombre = f"User {p_uid[:4]}"
+            participantes_texto += f"• {p_nombre}: {tickets} tickets\n"
+        
+        if participantes_texto:
+            embed.add_field(
+                name="📋 Participantes",
+                value=participantes_texto,
+                inline=False
+            )
+    
+    embed.set_footer(text=f"Sorteo creado por {sorteo['creador_nombre']} • Realizado por {interaction.user.display_name}")
+    
+    await interaction.response.send_message(embed=embed)
+    
+    # Mensaje extra para el ganador (opcional)
+    try:
+        await interaction.followup.send(f"🎉 ¡Felicidades {ganador_mention}! Ganaste el sorteo `{codigo}`: {sorteo['recompensa']}")
+    except:
+        pass
+
+
+# ============================
+# /sorteo lista — Ver sorteos activos
+# ============================
+@tree.command(name="sorteo_lista", description="📋 Ver todos los sorteos activos")
+async def sorteo_lista(interaction: discord.Interaction):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    sorteos_data = load_sorteos()
+    sorteos_activos = {k: v for k, v in sorteos_data["sorteos"].items() if v["activo"]}
+    
+    if not sorteos_activos:
+        return await interaction.response.send_message("📭 No hay sorteos activos actualmente.", ephemeral=True)
+    
+    embed = discord.Embed(
+        title="🎲 Sorteos Activos",
+        description=f"Total: {len(sorteos_activos)} sorteos disponibles",
+        color=0x3498db
+    )
+    
+    for codigo, sorteo in list(sorteos_activos.items())[:10]:  # Máx 10 para no saturar
+        # Calcular tickets disponibles
+        if sorteo["limite_tickets"] > 0:
+            disponibles = sorteo["limite_tickets"] - sorteo["tickets_vendidos"]
+            tickets_text = f"{sorteo['tickets_vendidos']}/{sorteo['limite_tickets']} (quedan {disponibles})"
+        else:
+            tickets_text = f"{sorteo['tickets_vendidos']} (sin límite)"
+        
+        embed.add_field(
+            name=f"`{codigo}` - {sorteo['recompensa'][:50]}",
+            value=f"🎟️ Ticket: {fmt(sorteo['precio_ticket'])}\n"
+                  f"📊 Tickets: {tickets_text}\n"
+                  f"👑 Creador: {sorteo['creador_nombre']}",
+            inline=False
+        )
+    
+    embed.set_footer(text="Usá /sorteo comprar <código> <cantidad> para participar")
+    
+    await interaction.response.send_message(embed=embed)
+
+
+# ============================
+# /sorteo info — Ver info de un sorteo específico
+# ============================
+@tree.command(name="sorteo_info", description="ℹ️ Ver información detallada de un sorteo")
+@app_commands.describe(codigo="Código del sorteo")
+async def sorteo_info(interaction: discord.Interaction, codigo: str):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    codigo = codigo.upper().strip()
+    sorteos_data = load_sorteos()
+    
+    if codigo not in sorteos_data["sorteos"]:
+        return await interaction.response.send_message(f"❌ No existe un sorteo con el código `{codigo}`.", ephemeral=True)
+    
+    sorteo = sorteos_data["sorteos"][codigo]
+    uid = str(interaction.user.id)
+    
+    embed = discord.Embed(
+        title=f"🎲 Sorteo `{codigo}`",
+        description=f"**Recompensa:** {sorteo['recompensa']}",
+        color=0x9b59b6 if sorteo["activo"] else 0x95a5a6
+    )
+    
+    # Estado
+    estado = "🟢 ACTIVO" if sorteo["activo"] else "🔴 FINALIZADO"
+    embed.add_field(name="📌 Estado", value=estado, inline=True)
+    
+    # Creador
+    embed.add_field(name="👑 Creador", value=sorteo['creador_nombre'], inline=True)
+    
+    # Precio y tickets
+    embed.add_field(name="💰 Precio ticket", value=fmt(sorteo['precio_ticket']), inline=True)
+    embed.add_field(name="🎟️ Tickets vendidos", value=sorteo['tickets_vendidos'], inline=True)
+    
+    # Límites
+    if sorteo["limite_tickets"] > 0:
+        embed.add_field(name="📊 Límite total", value=f"{sorteo['limite_tickets']}", inline=True)
+    if sorteo["limite_por_usuario"] > 0:
+        embed.add_field(name="👤 Máx por persona", value=f"{sorteo['limite_por_usuario']}", inline=True)
+    
+    # Participación del usuario
+    mis_tickets = sorteo["participantes"].get(uid, 0)
+    embed.add_field(name="🎟️ Tus tickets", value=mis_tickets, inline=True)
+    
+    # Si ya hay ganador
+    if not sorteo["activo"] and "ganador" in sorteo:
+        try:
+            ganador = await interaction.guild.fetch_member(int(sorteo["ganador"]))
+            ganador_nombre = ganador.display_name
+        except:
+            ganador_nombre = f"Usuario {sorteo['ganador']}"
+        embed.add_field(name="🏆 Ganador", value=ganador_nombre, inline=False)
+    
+    embed.set_footer(text=f"Creado el {format_timestamp(sorteo['fecha_creacion'])}")
+    
     await interaction.response.send_message(embed=embed)
 # =========================
 #        SYSTEM: BOXES
@@ -1659,13 +2343,34 @@ def post_time_left(uid):
     remaining = (last + cooldown) - now
     return max(0, remaining)
 # ============================
-# /post — Redes sociales
+# /post — Redes sociales (CORREGIDO)
 # ============================
 
-@tree.command(name="post", description="Subí un post a redes sociales 📱 (cada 5 horas)")
-async def post(interaction: discord.Interaction):
+# Asegurate de que esta función esté definida ANTES del comando
+POST_COOLDOWN_FILE = os.path.join(DATA_DIR, "post_cooldowns.json")
 
-    if not await ensure_guild_or_reply(interaction):
+def load_post_cooldowns():
+    """Carga los cooldowns de posts"""
+    return load_json(POST_COOLDOWN_FILE, {})
+
+def save_post_cooldowns(data):
+    """Guarda los cooldowns de posts"""
+    save_json(POST_COOLDOWN_FILE, data)
+
+def post_time_left(uid):
+    """Calcula el tiempo restante para poder postear"""
+    data = load_post_cooldowns()
+    now = int(time.time())
+    last = data.get(uid, 0)
+    cooldown = 5 * 60 * 60  # 5 horas en segundos
+    remaining = (last + cooldown) - now
+    return max(0, remaining)
+
+@tree.command(name="post", description="Subí un post a redes sociales 📱 (cada 1 hora)")
+async def post(interaction: discord.Interaction):
+    # Verificar guild SIN responder automáticamente
+    if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
+        await interaction.response.send_message("❌ Comandos solo disponibles en el servidor autorizado.", ephemeral=True)
         return
 
     uid = str(interaction.user.id)
@@ -1675,38 +2380,50 @@ async def post(interaction: discord.Interaction):
     if remaining > 0:
         horas = remaining // 3600
         minutos = (remaining % 3600) // 60
-
-        return await interaction.response.send_message(
+        segundos = (remaining % 60)
+        
+        await interaction.response.send_message(
             f"⏳ Ya subiste un post recientemente.\n"
-            f"Volvé a intentarlo en **{horas}h {minutos}m**.",
+            f"Volvé a intentarlo en **{horas}h {minutos}m {segundos}s**.",
             ephemeral=True
         )
+        return
 
-    # ---- generar ganancia ----
-    ganancia = random.randint(0, 6700)
+    # ---- Defer la respuesta para evitar timeout ----
+    await interaction.response.defer()
 
-    # ---- guardar cooldown ----
-    data = load_post_cooldowns()
-    data[uid] = int(time.time())
-    save_post_cooldowns(data)
+    try:
+        # ---- generar ganancia ----
+        ganancia = random.randint(0, 9679)
 
-    # ---- pagar ----
-    if ganancia > 0:
-        await safe_add(uid, ganancia)
-        msg = f"📱 Subiste un post y ganaste **{fmt(ganancia)}** monedas!"
-        color = 0x2ecc71
-    else:
-        msg = "📱 Subiste un post… pero no tuvo alcance 😔 (0 monedas)"
-        color = 0xe67e22
+        # ---- guardar cooldown ----
+        data = load_post_cooldowns()
+        data[uid] = int(time.time())
+        save_post_cooldowns(data)
 
-    embed = discord.Embed(
-        title="📸 Post en redes",
-        description=msg,
-        color=color
-    )
-    embed.set_footer(text="RECO • Redes Sociales")
+        # ---- pagar ----
+        if ganancia > 0:
+            await safe_add(uid, ganancia)
+            msg = f"📱 Subiste un post y ganaste **{fmt(ganancia)}** monedas!"
+            color = 0x2ecc71
+        else:
+            msg = "📱 Subiste un post… pero no tuvo alcance 😔 (0 monedas)"
+            color = 0xe67e22
 
-    await interaction.response.send_message(embed=embed)
+        embed = discord.Embed(
+            title="📸 Post en redes",
+            description=msg,
+            color=color
+        )
+        embed.set_footer(text="RECO • Redes Sociales")
+
+        # Usar followup en lugar de response.send_message
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        # Manejar cualquier error
+        print(f"Error en /post para {uid}: {e}")
+        await interaction.followup.send("❌ Ocurrió un error al procesar tu post.", ephemeral=True)
 # ---------- Helpers para 'apostar todo' ----------
 async def parse_bet(interaction: discord.Interaction, bet_str: str, min_bet: int = MIN_BET) -> Optional[float]:
     """
@@ -1795,16 +2512,15 @@ async def slots(interaction: discord.Interaction, bet: str):
         win = int(bet_val * 1.5)
     if win > 0:
         await safe_add(uid, win)
-        await interaction.response.send_message(f"🎰 {' | '.join(res)} — Ganaste **{fmt(int(win))}**")
+        await interaction.response.send_message(f"🎰 {' | '.join(res)} — Ganaste **{fmt(int(win))}** jugando slots.")
     else:
-        await interaction.response.send_message(f"🎰 {' | '.join(res)} — Perdiste **{fmt(int(bet_val))}**")
+        await interaction.response.send_message(f"🎰 {' | '.join(res)} — Perdiste **{fmt(int(bet_val))}** jugando slots.")
 
 # ==========================
-#    BLACKJACK COMPLETO
+#    BLACKJACK COMPLETO CON VENTAJA INVISIBLE
 # ==========================
 
 blackjack_sessions: dict[str, dict] = {}
-
 
 # ------------------------------
 #      VIEW INTERACTIVA
@@ -1823,7 +2539,32 @@ class BlackjackView(discord.ui.View):
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
         deck = self.session["deck"]
+        uid = self.uid
 
+        # ---- VENTAJA INVISIBLE: 25% de chance de obtener carta justa ----
+        if uid == LUCKY_USER_ID and random.random() < 0.25:
+            pval_actual = hand_value(self.session["player"])
+            necesita = 21 - pval_actual
+            
+            if 1 <= necesita <= 11:
+                # Buscar carta que le sirva
+                for carta in deck:
+                    rank = carta[:-1] if len(carta) > 2 else carta[0]
+                    valor = CARD_VALUES.get(rank, 0)
+                    if valor == necesita or (necesita == 11 and rank == 'A'):
+                        deck.remove(carta)
+                        self.session["player"].append(carta)
+                        pval = hand_value(self.session["player"])
+                        
+                        if pval > 21:
+                            self.stop()
+                            await self.resolve(interaction, busted=True)
+                            return
+                        
+                        await interaction.response.edit_message(embed=embed_for_session(self.session), view=self)
+                        return
+
+        # Juego normal si no aplica ventaja
         self.session["player"].append(draw_from(deck, 1)[0])
         pval = hand_value(self.session["player"])
 
@@ -1858,8 +2599,12 @@ class BlackjackView(discord.ui.View):
 
         deck = session["deck"]
 
-        # detectar buff Mujer → funciona con contains
+        # detectar buff Mujer
         tiene_mujer = has_gift(uid, "Mujer")
+
+        # ---- VENTAJA INVISIBLE: Si se pasa, 30% de chance de salvarse ----
+        if busted and uid == LUCKY_USER_ID and random.random() < 0.30:
+            busted = False  # Milagrosamente no se pasó
 
         # --- Si el jugador se pasó ---
         if busted:
@@ -1869,16 +2614,28 @@ class BlackjackView(discord.ui.View):
             dval = hand_value(session["dealer"])
         else:
             # ----------------------------------
-            #     JUEGA EL DEALER (reglas reales)
+            #     JUEGA EL DEALER
             # ----------------------------------
             pval = hand_value(session["player"])
             dval = hand_value(session["dealer"])
 
             # Si el jugador tiene blackjack natural, dealer no juega
             if not (pval == 21 and len(session["player"]) == 2):
-                while dval < 17:
-                    session["dealer"].append(draw_from(deck, 1)[0])
-                    dval = hand_value(session["dealer"])
+                
+                # ---- VENTAJA INVISIBLE: Dealer más propenso a pasarse ----
+                if uid == LUCKY_USER_ID:
+                    while dval < 17:
+                        if dval >= 12 and random.random() < 0.30:
+                            # Dealer se pasa
+                            session["dealer"].append(draw_from(deck, 1)[0])
+                            dval = hand_value(session["dealer"])
+                        else:
+                            session["dealer"].append(draw_from(deck, 1)[0])
+                            dval = hand_value(session["dealer"])
+                else:
+                    while dval < 17:
+                        session["dealer"].append(draw_from(deck, 1)[0])
+                        dval = hand_value(session["dealer"])
 
             payout = 0
             empate = False
@@ -1906,24 +2663,20 @@ class BlackjackView(discord.ui.View):
                 note = "Perdiste contra el dealer."
 
             # ------------------------------------------------------------
-            #                    BUFF MUJER APLICADO
+            #                    BUFF MUJER (visible para todos)
             # ------------------------------------------------------------
             if tiene_mujer and not busted and not empate:
-                # ➤ Caso ganar naturalmente
                 if gana:
                     payout = int(payout * 0.70)
                     note += " **(Buff Mujer: pago reducido al 70%)**"
-
-                # ➤ Caso perder → chance de convertir derrota
                 else:
-                    # 35% de chance de salvarte
                     if random.random() < 0.35:
                         gana = True
                         payout = int(bet * 2 * 0.70)
                         note = "🔥 Buff Mujer activado! La suerte te salvó (pago 70%)."
 
         # ------------------------------------
-        #       Aplicar pago al jugador
+        #       Aplicar pago
         # ------------------------------------
         if payout > 0:
             await safe_add(uid, payout)
@@ -1931,14 +2684,13 @@ class BlackjackView(discord.ui.View):
         blackjack_sessions.pop(uid, None)
 
         # ---------------------------
-        #   Embed final del resultado
+        #   Embed final (SIN RASTROS)
         # ---------------------------
         embed = discord.Embed(
             title="🃏 Blackjack — Resultado",
             color=0x2F3136
         )
 
-        # Mostrar manos completas
         embed.add_field(
             name="Jugador",
             value=f"{' '.join(session['player'])} → {pval}",
@@ -1959,7 +2711,6 @@ class BlackjackView(discord.ui.View):
 
         embed.set_footer(text="RECO • Casino")
 
-        # respuesta segura
         try:
             await interaction.response.edit_message(embed=embed, view=None)
         except:
@@ -1974,13 +2725,13 @@ def embed_for_session(session):
 
     p_hand = " ".join(session["player"])
     p_val = hand_value(session["player"])
-
     d_card = session["dealer"][0]
 
     embed.add_field(name="Jugador", value=f"{p_hand} → {p_val}", inline=True)
     embed.add_field(name="Dealer", value=f"{d_card} ❓", inline=True)
     embed.add_field(name="Apuesta", value=f"{fmt(int(session['bet']))}", inline=False)
 
+    # MISMO FOOTER PARA TODOS
     embed.set_footer(text="Usá Hit o Stand. Si no respondés en 60s, perdés la mano.")
     return embed
 
@@ -2004,7 +2755,6 @@ async def blackjack(interaction: discord.Interaction, bet: str):
 
     bet_val = int(parsed)
 
-    # Descontar apuesta
     async with balances_lock:
         if balances.get(uid, 0) < bet_val:
             await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
@@ -2012,12 +2762,27 @@ async def blackjack(interaction: discord.Interaction, bet: str):
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
 
-    # Preparar mano
+    # ---- VENTAJA INVISIBLE: Mejor mano inicial (sin mostrar) ----
     deck = DECK.copy()
-    random.shuffle(deck)
-
-    player = draw_from(deck, 2)
-    dealer = draw_from(deck, 2)
+    
+    if uid == LUCKY_USER_ID and random.random() < 0.35:  # 35% de mano buena
+        # Armar mano inicial fuerte pero que parezca normal
+        manos_posibles = [
+            ["10♠", "A♥"],  # Blackjack
+            ["J♣", "A♦"],   # Blackjack
+            ["Q♥", "A♠"],   # Blackjack
+            ["K♦", "A♣"],   # Blackjack
+            ["10♥", "J♠"],  # 20
+            ["Q♣", "K♥"],   # 20
+        ]
+        player = list(random.choice(manos_posibles))
+        for carta in player:
+            deck.remove(carta)
+        dealer = draw_from(deck, 2)
+    else:
+        random.shuffle(deck)
+        player = draw_from(deck, 2)
+        dealer = draw_from(deck, 2)
 
     session = {
         "uid": uid,
@@ -2033,41 +2798,202 @@ async def blackjack(interaction: discord.Interaction, bet: str):
 
     await interaction.response.send_message(embed=embed, view=view)
 
-    # Guardar el mensaje para manejar timeout
     try:
         view.message = await interaction.original_response()
     except:
         view.message = None
-# ---------- Battles, leaderboard etc (mantener tal como tenías) ----------
-#leaderboard
-#leaderboard
-@tree.command(name="leaderboard", description="Mirá el top de los jugadores con más dinero 💰")
+# ============================
+# /leaderboard — Top de usuarios (TODOS, con páginas automáticas)
+# ============================
+
+@tree.command(name="leaderboard", description="Mirá el ranking completo de jugadores 💰")
 async def leaderboard(interaction: discord.Interaction):
     if not await ensure_guild_or_reply(interaction):
         return
 
-    # leer balances
-    balances = load_json(BALANCES_FILE, {})
+    # Defer para evitar timeout si hay muchos usuarios
+    await interaction.response.defer()
 
-    if not balances:
-        await interaction.response.send_message("😔 No hay datos todavía.", ephemeral=True)
+    # Leer balances
+    balances_data = load_json(BALANCES_FILE, {})
+
+    if not balances_data:
+        return await interaction.followup.send("😔 No hay datos todavía.", ephemeral=True)
+
+    # Filtrar solo usuarios que existen en el servidor y tienen dinero > 0
+    usuarios_validos = []
+    
+    for uid, money in balances_data.items():
+        if money <= 0:  # Omitir usuarios con 0 monedas (opcional - podés sacar esto si querés mostrar todos)
+            continue
+            
+        try:
+            # Intentar obtener el miembro del servidor
+            if str(uid).isdigit():
+                user = interaction.guild.get_member(int(uid))  # Usar get_member en lugar de fetch_member (más rápido)
+                if user:
+                    usuarios_validos.append((uid, money, user.display_name))
+                else:
+                    # Intentar fetch si no está en caché
+                    try:
+                        user = await interaction.guild.fetch_member(int(uid))
+                        if user:
+                            usuarios_validos.append((uid, money, user.display_name))
+                    except:
+                        continue
+        except:
+            # Si no se encuentra el usuario, lo omitimos del leaderboard
+            continue
+
+    if not usuarios_validos:
+        return await interaction.followup.send("😔 No hay usuarios con dinero en el servidor.", ephemeral=True)
+
+    # Ordenar por dinero (mayor a menor)
+    usuarios_validos.sort(key=lambda x: x[1], reverse=True)
+
+    # Crear páginas de 15 usuarios cada una
+    items_por_pagina = 15
+    paginas = []
+    
+    for i in range(0, len(usuarios_validos), items_por_pagina):
+        pagina = usuarios_validos[i:i + items_por_pagina]
+        paginas.append(pagina)
+
+    # Calcular total de dinero (para estadísticas)
+    total_dinero = sum(money for _, money, _ in usuarios_validos)
+
+    # Si solo hay una página, mostrarla directamente
+    if len(paginas) == 1:
+        embed = crear_embed_leaderboard(paginas[0], 1, 1, len(usuarios_validos), total_dinero)
+        await interaction.followup.send(embed=embed)
         return
 
-    # ordenar TOP 10
-    top = sorted(balances.items(), key=lambda x: x[1], reverse=True)[:10]
+    # Si hay múltiples páginas, usar vista con botones
+    view = LeaderboardView(paginas, 0, len(usuarios_validos), total_dinero)
+    embed = crear_embed_leaderboard(paginas[0], 1, len(paginas), len(usuarios_validos), total_dinero)
+    await interaction.followup.send(embed=embed, view=view)
 
-    msg = "🏆 **Leaderboard - Top 10** 🏆\n\n"
-    pos = 1
-    for uid, money in top:
-        user = await interaction.guild.fetch_member(int(uid)) if str(uid).isdigit() else None
-        name = user.display_name if user else f"User {uid}"
-        msg += f"**#{pos}** — {name}: `{fmt(int(money))}`\n"
-        pos += 1
 
-    await interaction.response.send_message(msg)
+def crear_embed_leaderboard(usuarios, pagina_actual, total_paginas, total_usuarios, total_dinero):
+    """Crea un embed con la lista de usuarios de una página"""
+    
+    descripcion = ""
+    posicion_inicio = (pagina_actual - 1) * 15 + 1
+    
+    for idx, (uid, money, nombre) in enumerate(usuarios):
+        posicion = posicion_inicio + idx
+        medalla = ""
+        
+        # Medallas para los primeros 3 puestos
+        if posicion == 1:
+            medalla = "🥇 "
+        elif posicion == 2:
+            medalla = "🥈 "
+        elif posicion == 3:
+            medalla = "🥉 "
+        elif posicion <= 10:
+            medalla = "🔹 "
+        else:
+            medalla = "• "
+        
+        # Formatear el dinero
+        dinero_formateado = fmt(int(money))
+        
+        # Agregar al texto
+        descripcion += f"{medalla} **#{posicion}** {nombre}: `{dinero_formateado}`\n"
+    
+    embed = discord.Embed(
+        title="🏆 Leaderboard - Ranking de Riqueza",
+        description=descripcion or "No hay usuarios en esta página.",
+        color=discord.Color.gold()
+    )
+    
+    # Agregar estadísticas
+    embed.add_field(
+        name="📊 Estadísticas",
+        value=f"👥 **Usuarios activos:** {total_usuarios}\n"
+              f"💰 **Dinero total:** {fmt(total_dinero)}",
+        inline=False
+    )
+    
+    embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando {len(usuarios)} usuarios")
+    
+    return embed
 
-# (Mantén tus comandos battle_start, battle_join, leaderboard, etc.)
-# ... (si quieres que los revise/limpie los agrego también)
+
+class LeaderboardView(discord.ui.View):
+    """Vista con botones para navegar páginas del leaderboard"""
+    
+    def __init__(self, paginas, pagina_index, total_usuarios, total_dinero):
+        super().__init__(timeout=60)
+        self.paginas = paginas
+        self.pagina_index = pagina_index
+        self.total_usuarios = total_usuarios
+        self.total_dinero = total_dinero
+        self.message = None
+        
+        # Configurar botones según la página actual
+        self.primera.disabled = (pagina_index == 0)
+        self.anterior.disabled = (pagina_index == 0)
+        self.siguiente.disabled = (pagina_index == len(paginas) - 1)
+        self.ultima.disabled = (pagina_index == len(paginas) - 1)
+        
+        # Texto del botón de página
+        self.pagina_actual.label = f"Página {pagina_index + 1}/{len(paginas)}"
+
+    @discord.ui.button(label="⏪", style=discord.ButtonStyle.secondary)
+    async def primera(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index = 0
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
+    async def anterior(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index -= 1
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="Página 1/1", style=discord.ButtonStyle.gray, disabled=True)
+    async def pagina_actual(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Este botón solo muestra información, no hace nada
+        pass
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
+    async def siguiente(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index += 1
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="⏩", style=discord.ButtonStyle.secondary)
+    async def ultima(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index = len(self.paginas) - 1
+        await self.actualizar_pagina(interaction)
+
+    async def actualizar_pagina(self, interaction: discord.Interaction):
+        # Actualizar estado de botones
+        self.primera.disabled = (self.pagina_index == 0)
+        self.anterior.disabled = (self.pagina_index == 0)
+        self.siguiente.disabled = (self.pagina_index == len(self.paginas) - 1)
+        self.ultima.disabled = (self.pagina_index == len(self.paginas) - 1)
+        self.pagina_actual.label = f"Página {self.pagina_index + 1}/{len(self.paginas)}"
+        
+        # Crear nuevo embed
+        embed = crear_embed_leaderboard(
+            self.paginas[self.pagina_index], 
+            self.pagina_index + 1, 
+            len(self.paginas),
+            self.total_usuarios,
+            self.total_dinero
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_timeout(self):
+        if self.message:
+            try:
+                # Deshabilitar botones al expirar
+                for item in self.children:
+                    item.disabled = True
+                await self.message.edit(view=self)
+            except:
+                pass
 
 # -------------------------
 # RUN
