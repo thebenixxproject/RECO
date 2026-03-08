@@ -212,7 +212,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("i hate being bipolar its awesome" \
+    await interaction.followup.send("68667384929559847582957834639058920384729385728935728935728935728395728395" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -1872,75 +1872,6 @@ async def sorteo_info(interaction: discord.Interaction, codigo: str):
     embed.set_footer(text=f"Creado el {format_timestamp(sorteo['fecha_creacion'])}")
     
     await interaction.response.send_message(embed=embed)
-# =========================
-#        SYSTEM: BOXES
-# =========================
-
-#─── Config Boxes ───────────────────────────────────────────────
-BOXES = {
-    "normal": {
-        "price": 30000,
-        "rewards": [
-            ("Gallina", 50),
-            ("Piedra – 30 CTC", 25),
-            ("León – 40.000 monedas", 15),
-            ("Tortuga – 40% OFF (compra +40 niveles)", 10),
-        ]
-    },
-    "rara": {
-        "price": 60000,
-        "rewards": [
-            ("Toilet – 3 tickets + 15 MMC", 40),
-            ("Bombero – Cupón Rol + 20.000", 30),
-            ("Mujer – x2 suerte Blackjack (70% ganancia)", 20),
-            ("Limón – Crear Crypto + 40.000", 10),
-        ]
-    },
-    "crazy": {
-        "price": 100000,
-        "rewards": [
-            ("Mango – 80 niveles + 90.000", 30),
-            ("Foca – Romper 2 reglas + 50.000 + 30 CTC", 30),
-            ("Círculo Violeta – HoF + 60.000", 35),
-            ("Barra de Oro – 150.000 + x4 Crypto + Rol + Timeout 1h + 100 niveles", 5),
-        ]
-    }
-}
-
-# =========================
-#     GIFTS SYSTEM
-# =========================
-
-GIFTS_FILE = os.path.join(DATA_DIR, "gifts.json")
-
-def load_gifts():
-    return load_json(GIFTS_FILE, {})
-
-def save_gifts(data):
-    save_json(GIFTS_FILE, data)
-
-def add_gift(uid, gift_name):
-    data = load_gifts()
-    if uid not in data:
-        data[uid] = []
-    data[uid].append(gift_name)
-    save_gifts(data)
-
-def remove_gift(uid, gift_name):
-    data = load_gifts()
-    if uid not in data:
-        return False
-    if gift_name not in data[uid]:
-        return False
-    data[uid].remove(gift_name)
-    save_gifts(data)
-    return True
-
-def has_gift(uid, gift_name):
-    data = load_gifts()
-    user = data.get(uid, [])
-    return any(gift_name.lower() in g.lower() for g in user)
-
 
 # =========================
 #       BUFF SYSTEM
@@ -1991,258 +1922,88 @@ def buff_time_left(uid, buff_name):
 
     return max(data[uid][buff_name] - now, 0)
 #------------------------------------------------
-#--------------------/post-----------------------
+#--------------------/post (VERSIÓN DEBUG)-------
 #------------------------------------------------
 @tree.command(name="post", description="Subí un post a redes sociales 📱")
 async def post(interaction: discord.Interaction):
+    # PRINT 1: El comando se llamó
+    print(f"🔵 /post llamado por {interaction.user.name} (ID: {interaction.user.id})")
+    
     try:
-        # Verificación manual sin función externa
-        if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
+        # Verificación de servidor
+        print("🔵 Verificando servidor...")
+        if interaction.guild is None:
+            print("🔴 Error: Sin servidor")
+            await interaction.response.send_message("❌ Este comando solo funciona en servidores.", ephemeral=True)
+            return
+            
+        if interaction.guild.id != ALLOWED_GUILD_ID:
+            print(f"🔴 Error: Servidor incorrecto (ID: {interaction.guild.id}, esperado: {ALLOWED_GUILD_ID})")
             await interaction.response.send_message("❌ Comando no disponible en este servidor.", ephemeral=True)
             return
+            
+        print("✅ Servidor verificado")
 
         uid = str(interaction.user.id)
+        print(f"🔵 UID: {uid}")
 
         # Cooldown
+        print("🔵 Verificando cooldown...")
         remaining = post_time_left(uid)
+        print(f"🔵 Tiempo restante: {remaining} segundos")
+        
         if remaining > 0:
             horas = remaining // 3600
             minutos = (remaining % 3600) // 60
+            print(f"🟡 Cooldown activo: {horas}h {minutos}m")
             await interaction.response.send_message(
                 f"⏳ Volvé en **{horas}h {minutos}m**.",
                 ephemeral=True
             )
+            print("✅ Mensaje de cooldown enviado")
             return
 
         # Generar ganancia
+        print("🔵 Generando ganancia...")
         ganancia = random.randint(0, 6700)
+        print(f"✅ Ganancia generada: {ganancia}")
 
         # Guardar cooldown
+        print("🔵 Guardando cooldown...")
         data = load_post_cooldowns()
         data[uid] = int(time.time())
         save_post_cooldowns(data)
+        print("✅ Cooldown guardado")
 
         # Pagar
         if ganancia > 0:
+            print(f"🔵 Pagando {ganancia} monedas...")
             await safe_add(uid, ganancia)
+            print("✅ Pago realizado")
 
         # Responder
+        print("🔵 Creando embed...")
         embed = discord.Embed(
             title="📸 Post en redes",
             description=f"📱 Ganaste **{fmt(ganancia)}** monedas!" if ganancia > 0 else "📱 No tuviste alcance 😔",
             color=0x2ecc71 if ganancia > 0 else 0xe67e22
         )
+        
+        print("🔵 Enviando respuesta...")
         await interaction.response.send_message(embed=embed)
+        print("✅ RESPUESTA ENVIADA CORRECTAMENTE")
 
     except Exception as e:
-        print(f"ERROR en /post: {e}")
+        print(f"🔴🔴🔴 ERROR EN /post: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        
         if not interaction.response.is_done():
-            await interaction.response.send_message("❌ Error inesperado.", ephemeral=True)
-# =========================
-#          /boxes
-# =========================
-
-@tree.command(name="boxes", description="Comprar y abrir cajas misteriosas 🎁")
-@app_commands.describe(tipo="normal, rara o crazy")
-async def boxes(interaction: discord.Interaction, tipo: str):
-
-    tipo = tipo.lower()
-
-    if tipo not in BOXES:
-        return await interaction.response.send_message(
-            "❌ Tipo inválido: normal / rara / crazy",
-            ephemeral=True
-        )
-
-    uid = str(interaction.user.id)
-    caja = BOXES[tipo]
-    precio = caja["price"]
-
-    # Descontar monedas
-    async with balances_lock:
-        saldo = balances.get(uid, 0)
-        if saldo < precio:
-            return await interaction.response.send_message(
-                f"❌ Necesitás {precio:,} monedas.",
-                ephemeral=True
-            )
-        balances[uid] -= precio
-        save_json(BALANCES_FILE, balances)
-
-    # Selección probabilística
-    items = [r[0] for r in caja["rewards"]]
-    probs = [r[1] for r in caja["rewards"]]
-
-    premio = random.choices(items, probs)[0]
-
-    # -------------------------
-    #   CASO ESPECIAL: GALLINA
-    # -------------------------
-    if premio == "Gallina":
-        apply_buff(uid, "Gallina", 600)  # 10 minutos
-        return await interaction.response.send_message(
-            "🐔 **Gallina conseguida!**\n"
-            "Durante **10 minutos** obtenés **+1.25x** en TODAS tus ganancias.",
-        )
-
-    # Guardar premio en inventario
-    add_gift(uid, premio)
-
-    embed = discord.Embed(
-        title="🎁 Caja Misteriosa Abierta!",
-        description=f"Tipo: **{tipo.upper()}**",
-        color=discord.Color.gold()
-    )
-
-    embed.add_field(name="🎉 Ganaste:", value=f"**{premio}**", inline=False)
-    embed.set_footer(text=f"Costó {precio:,} monedas")
-
-    await interaction.response.send_message(embed=embed)
-
-
-# =========================
-#       /seegifts
-# =========================
-
-@tree.command(name="seegifts", description="Ver tus cupones y regalos 🎁")
-async def seegifts(interaction: discord.Interaction):
-    uid = str(interaction.user.id)
-    inv = load_gifts().get(uid, [])
-
-    if not inv:
-        return await interaction.response.send_message(
-            "📭 No tenés regalos todavía.",
-            ephemeral=True
-        )
-
-    embed = discord.Embed(
-        title="🎁 Tu inventario de regalos",
-        color=discord.Color.purple()
-    )
-
-    embed.add_field(name="Regalos:", value="\n".join([f"• {g}" for g in inv]), inline=False)
-    await interaction.response.send_message(embed=embed)
-
-
-# =========================
-#       /addbox
-# =========================
-
-@tree.command(name="addbox", description="(Admin) Agregar un regalo manualmente a un usuario")
-@app_commands.describe(user="Usuario", regalo="Texto exacto del regalo")
-async def addbox(interaction: discord.Interaction, user: discord.User, regalo: str):
-
-    if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("❌ Solo admins.", ephemeral=True)
-
-    uid = str(user.id)
-    add_gift(uid, regalo)
-
-    await interaction.response.send_message(
-        f"✅ Regalo agregado a **{user.display_name}**: `{regalo}`"
-    )
-
-# ============================
-import unicodedata
-
-# -------------------------
-# Helpers para gifts
-# -------------------------
-def normalize(text: str) -> str:
-    """
-    Normaliza texto: quita tildes, pasa a minúsculas y limpia espacios.
-    Esto ayuda a hacer matches flexibles (ej: 'LEÓN' -> 'leon').
-    """
-    if not isinstance(text, str):
-        return ""
-    text = text.strip().lower()
-    # quitar acentos
-    text = unicodedata.normalize("NFKD", text)
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return text
-
-def get_gifts(uid: str) -> list:
-    """
-    Devuelve la lista de regalos del usuario (copiada).
-    Siempre devuelve lista (vacía si no tiene).
-    """
-    data = load_gifts()  # usa tu función existente
-    lst = data.get(str(uid), [])
-    # asegurarse de devolver una copia y strings
-    return [str(x) for x in lst]
-
-# -------------------------
-# /transfergiftbox (actualizado)
-# -------------------------
-@tree.command(name="transfergiftbox", description="Transferir un regalo a otro jugador")
-@app_commands.describe(user="Usuario destino", regalo="Nombre del regalo (puede ser aproximado)")
-async def transfergiftbox(interaction: discord.Interaction, user: discord.User, regalo: str):
-
-    sender = str(interaction.user.id)
-    receiver = str(user.id)
-
-    if sender == receiver:
-        return await interaction.response.send_message("❌ No podés transferirte regalos a vos mismo.", ephemeral=True)
-
-    # Obtener lista de regalos del remitente
-    gifts_sender = get_gifts(sender)
-    if not gifts_sender:
-        return await interaction.response.send_message("❌ No tenés regalos para transferir.", ephemeral=True)
-
-    # Normalizar entrada
-    entrada_norm = normalize(regalo)
-
-    # Construir lookup normalizado -> original (prioriza coincidencia exacta)
-    lookup = {}
-    for g in gifts_sender:
-        lookup[normalize(g)] = g
-
-    elegido = None
-
-    # 1) buscar coincidencia exacta normalizada
-    if entrada_norm in lookup:
-        elegido = lookup[entrada_norm]
-    else:
-        # 2) buscar coincidencia por substring (primero en originales normalizados)
-        for k_norm, original in lookup.items():
-            if entrada_norm in k_norm or k_norm in entrada_norm:
-                elegido = original
-                break
-
-    if elegido is None:
-        # 3) intentar coincidencia parcial más laxa (palabras)
-        entrada_tokens = entrada_norm.split()
-        for k_norm, original in lookup.items():
-            for t in entrada_tokens:
-                if t and t in k_norm:
-                    elegido = original
-                    break
-            if elegido:
-                break
-
-    if elegido is None:
-        # Construir lista corta de los primeros 8 regalos para ayudar al usuario
-        sample = gifts_sender[:8]
-        sample_txt = ", ".join(sample)
-        return await interaction.response.send_message(
-            f"❌ No encontré ningún regalo parecido a **{regalo}** en tu inventario.\n"
-            f"Ejemplos de lo que tenés: {sample_txt}",
-            ephemeral=True
-        )
-
-    # Remover del que envía
-    ok = remove_gift(sender, elegido)
-    if not ok:
-        return await interaction.response.send_message("❌ Error al quitar el regalo de tu inventario.", ephemeral=True)
-
-    # Agregar al receptor
-    add_gift(receiver, elegido)
-
-    await interaction.response.send_message(
-        f"📦 **Transferencia completa!**\n\n"
-        f"Regalo enviado: **{elegido}**\n"
-        f"Para: **{user.display_name}**"
-    )
+            try:
+                await interaction.response.send_message("❌ Error inesperado. Revisá la consola.", ephemeral=True)
+                print("✅ Mensaje de error enviado al usuario")
+            except:
+                print("🔴 No se pudo enviar mensaje de error")
 # ============================
 # Juego: Encontrá la Piedra (/find)
 # ============================
