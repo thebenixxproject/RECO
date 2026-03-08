@@ -212,7 +212,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("68667384929559847582957834639058920384729385728935728935728935728395728395" \
+    await interaction.followup.send("YEEZY HOW YOU DOIN HUH" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -1922,88 +1922,53 @@ def buff_time_left(uid, buff_name):
 
     return max(data[uid][buff_name] - now, 0)
 #------------------------------------------------
-#--------------------/post (VERSIÓN DEBUG)-------
+#--------------------/post-----------------------
 #------------------------------------------------
 @tree.command(name="post", description="Subí un post a redes sociales 📱")
 async def post(interaction: discord.Interaction):
-    # PRINT 1: El comando se llamó
-    print(f"🔵 /post llamado por {interaction.user.name} (ID: {interaction.user.id})")
-    
     try:
-        # Verificación de servidor
-        print("🔵 Verificando servidor...")
-        if interaction.guild is None:
-            print("🔴 Error: Sin servidor")
-            await interaction.response.send_message("❌ Este comando solo funciona en servidores.", ephemeral=True)
-            return
-            
-        if interaction.guild.id != ALLOWED_GUILD_ID:
-            print(f"🔴 Error: Servidor incorrecto (ID: {interaction.guild.id}, esperado: {ALLOWED_GUILD_ID})")
+        # Verificación manual sin función externa
+        if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
             await interaction.response.send_message("❌ Comando no disponible en este servidor.", ephemeral=True)
             return
-            
-        print("✅ Servidor verificado")
 
         uid = str(interaction.user.id)
-        print(f"🔵 UID: {uid}")
 
         # Cooldown
-        print("🔵 Verificando cooldown...")
         remaining = post_time_left(uid)
-        print(f"🔵 Tiempo restante: {remaining} segundos")
-        
         if remaining > 0:
             horas = remaining // 3600
             minutos = (remaining % 3600) // 60
-            print(f"🟡 Cooldown activo: {horas}h {minutos}m")
             await interaction.response.send_message(
                 f"⏳ Volvé en **{horas}h {minutos}m**.",
                 ephemeral=True
             )
-            print("✅ Mensaje de cooldown enviado")
             return
 
         # Generar ganancia
-        print("🔵 Generando ganancia...")
         ganancia = random.randint(0, 6700)
-        print(f"✅ Ganancia generada: {ganancia}")
 
         # Guardar cooldown
-        print("🔵 Guardando cooldown...")
         data = load_post_cooldowns()
         data[uid] = int(time.time())
         save_post_cooldowns(data)
-        print("✅ Cooldown guardado")
 
         # Pagar
         if ganancia > 0:
-            print(f"🔵 Pagando {ganancia} monedas...")
             await safe_add(uid, ganancia)
-            print("✅ Pago realizado")
 
         # Responder
-        print("🔵 Creando embed...")
         embed = discord.Embed(
             title="📸 Post en redes",
             description=f"📱 Ganaste **{fmt(ganancia)}** monedas!" if ganancia > 0 else "📱 No tuviste alcance 😔",
             color=0x2ecc71 if ganancia > 0 else 0xe67e22
         )
-        
-        print("🔵 Enviando respuesta...")
         await interaction.response.send_message(embed=embed)
-        print("✅ RESPUESTA ENVIADA CORRECTAMENTE")
 
     except Exception as e:
-        print(f"🔴🔴🔴 ERROR EN /post: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        
+        print(f"ERROR en /post: {e}")
         if not interaction.response.is_done():
-            try:
-                await interaction.response.send_message("❌ Error inesperado. Revisá la consola.", ephemeral=True)
-                print("✅ Mensaje de error enviado al usuario")
-            except:
-                print("🔴 No se pudo enviar mensaje de error")
+            await interaction.response.send_message("❌ Error inesperado.", ephemeral=True)
 # ============================
 # Juego: Encontrá la Piedra (/find)
 # ============================
@@ -2304,9 +2269,6 @@ class BlackjackView(discord.ui.View):
         uid = self.uid
 
         # ---- VENTAJA ESTADÍSTICA: 30% más de chance de obtener carta justa ----
-        # Probabilidad base: depende de las cartas en el mazo
-        # La ventaja es que en lugar de elegir aleatoriamente, a veces elegimos una carta útil
-        
         if uid == LUCKY_USER_ID:
             pval_actual = hand_value(self.session["player"])
             necesita = 21 - pval_actual
@@ -2322,7 +2284,7 @@ class BlackjackView(discord.ui.View):
                         cartas_utiles.append(carta)
                 
                 # Si hay cartas útiles, 30% más de probabilidad de obtener una
-                if cartas_utiles and random.random() < 0.30:  # 30% de activar la ventaja
+                if cartas_utiles and random.random() < 0.30:
                     carta_elegida = random.choice(cartas_utiles)
                     deck.remove(carta_elegida)
                     self.session["player"].append(carta_elegida)
@@ -2371,10 +2333,7 @@ class BlackjackView(discord.ui.View):
 
         deck = session["deck"]
 
-        # detectar buff Mujer
-        tiene_mujer = has_gift(uid, "Mujer")
-
-        # --- Si el jugador se pasó (sin salvaciones mágicas) ---
+        # --- Si el jugador se pasó ---
         if busted:
             payout = 0
             note = "Te pasaste (bust). Perdiste."
@@ -2391,13 +2350,10 @@ class BlackjackView(discord.ui.View):
             if not (pval == 21 and len(session["player"]) == 2):
                 
                 # ---- VENTAJA ESTADÍSTICA: 20% más de chance que el dealer se pase ----
-                # El dealer juega normal, pero cuando tiene 12 o más, 20% más de probabilidad de pasarse
                 if uid == LUCKY_USER_ID:
                     while dval < 17:
                         if dval >= 12:
-                            # Probabilidad base de pasarse (depende de las cartas)
-                            # Simulamos que el dealer tiene 20% más de probabilidad de tomar una carta alta
-                            if random.random() < 0.20:  # 20% de activar la ventaja
+                            if random.random() < 0.20:
                                 # Forzar una carta alta (10, J, Q, K)
                                 cartas_altas = [c for c in deck if CARD_VALUES.get(c[:-1] if len(c) > 2 else c[0], 0) == 10]
                                 if cartas_altas:
@@ -2439,19 +2395,6 @@ class BlackjackView(discord.ui.View):
                 gana = False
                 payout = 0
                 note = "Perdiste contra el dealer."
-
-            # ------------------------------------------------------------
-            #                    BUFF MUJER (visible para todos)
-            # ------------------------------------------------------------
-            if tiene_mujer and not busted and not empate:
-                if gana:
-                    payout = int(payout * 0.70)
-                    note += " **(Buff Mujer: pago reducido al 70%)**"
-                else:
-                    if random.random() < 0.35:
-                        gana = True
-                        payout = int(bet * 2 * 0.70)
-                        note = "🔥 Buff Mujer activado! La suerte te salvó (pago 70%)."
 
         # ------------------------------------
         #       Aplicar pago
@@ -2542,19 +2485,17 @@ async def blackjack(interaction: discord.Interaction, bet: str):
     # ---- VENTAJA ESTADÍSTICA: 15% más de chance de arrancar con buena mano ----
     deck = DECK.copy()
     
-    if uid == LUCKY_USER_ID and random.random() < 0.15:  # 15% de activar la ventaja
-        # En lugar de darle una mano fija, mejoramos ligeramente su mano base
+    if uid == LUCKY_USER_ID and random.random() < 0.15:
         random.shuffle(deck)
         player = draw_from(deck, 2)
         
         # Si la mano es mala, la mejoramos un poco
         p_val_temp = hand_value(player)
-        if p_val_temp < 16:  # Mano regular/mala
+        if p_val_temp < 16:
             # Reemplazar la carta más baja por algo mejor (8-10)
             cartas_ordenadas = sorted(player, key=lambda c: CARD_VALUES.get(c[:-1] if len(c) > 2 else c[0], 0))
             carta_mala = cartas_ordenadas[0]
             
-            # Buscar una carta mejor en el mazo
             cartas_mejores = [c for c in deck if CARD_VALUES.get(c[:-1] if len(c) > 2 else c[0], 0) in [8, 9, 10]]
             if cartas_mejores:
                 deck.remove(carta_mala)
@@ -2586,38 +2527,59 @@ async def blackjack(interaction: discord.Interaction, bet: str):
     except:
         view.message = None
 # ============================
-# /leaderboard — Top de usuarios (TODOS, con páginas automáticas)
+# /leaderboard — Sistema completo (coins y crypto)
 # ============================
 
-@tree.command(name="leaderboard", description="Mirá el ranking completo de jugadores 💰")
-async def leaderboard(interaction: discord.Interaction):
+# Precio base del nivel (lo podés ajustar)
+PRECIO_BASE_NIVEL = 1035
+
+@tree.command(name="leaderboard", description="📊 Ver ranking de monedas o cryptos")
+@app_commands.describe(
+    tipo="coins (monedas) o crypto (criptomonedas)"
+)
+@app_commands.choices(tipo=[
+    app_commands.Choice(name="💰 Monedas", value="coins"),
+    app_commands.Choice(name="💎 Cryptos", value="crypto")
+])
+async def leaderboard(interaction: discord.Interaction, tipo: str = "coins"):
+    
     if not await ensure_guild_or_reply(interaction):
         return
 
-    # Defer para evitar timeout si hay muchos usuarios
+    # Defer para evitar timeout
     await interaction.response.defer()
 
+    if tipo == "coins":
+        await leaderboard_coins(interaction)
+    else:
+        await leaderboard_crypto(interaction)
+
+
+# ============================
+# LEADERBOARD DE MONEDAS
+# ============================
+async def leaderboard_coins(interaction: discord.Interaction):
+    
     # Leer balances
     balances_data = load_json(BALANCES_FILE, {})
 
     if not balances_data:
-        return await interaction.followup.send("😔 No hay datos todavía.", ephemeral=True)
+        return await interaction.followup.send("😔 No hay datos de monedas todavía.", ephemeral=True)
 
-    # Filtrar solo usuarios que existen en el servidor y tienen dinero > 0
+    # Filtrar usuarios válidos con dinero > 0
     usuarios_validos = []
+    dinero_total_anterior = 0  # Este debería venir de un histórico, pero usaremos el total actual como base
     
     for uid, money in balances_data.items():
-        if money <= 0:  # Omitir usuarios con 0 monedas (opcional - podés sacar esto si querés mostrar todos)
+        if money <= 0:
             continue
             
         try:
-            # Intentar obtener el miembro del servidor
             if str(uid).isdigit():
-                user = interaction.guild.get_member(int(uid))  # Usar get_member en lugar de fetch_member (más rápido)
+                user = interaction.guild.get_member(int(uid))
                 if user:
                     usuarios_validos.append((uid, money, user.display_name))
                 else:
-                    # Intentar fetch si no está en caché
                     try:
                         user = await interaction.guild.fetch_member(int(uid))
                         if user:
@@ -2625,16 +2587,26 @@ async def leaderboard(interaction: discord.Interaction):
                     except:
                         continue
         except:
-            # Si no se encuentra el usuario, lo omitimos del leaderboard
             continue
 
     if not usuarios_validos:
-        return await interaction.followup.send("😔 No hay usuarios con dinero en el servidor.", ephemeral=True)
+        return await interaction.followup.send("😔 No hay usuarios con monedas en el servidor.", ephemeral=True)
 
     # Ordenar por dinero (mayor a menor)
     usuarios_validos.sort(key=lambda x: x[1], reverse=True)
 
-    # Crear páginas de 15 usuarios cada una
+    # Calcular total de dinero actual
+    dinero_total_actual = sum(money for _, money, _ in usuarios_validos)
+    
+    # Simular un dinero total anterior (en un sistema real, esto vendría de un histórico)
+    # Por ahora, usamos el 90% del actual para que el cálculo sea visible
+    dinero_total_anterior = int(dinero_total_actual * 0.9) or 1  # Evitar división por cero
+
+    # Calcular nuevo precio del nivel
+    # Precio nuevo = Precio base × Dinero base / Dinero actual
+    precio_nuevo = int(PRECIO_BASE_NIVEL * dinero_total_anterior / dinero_total_actual)
+
+    # Crear páginas
     items_por_pagina = 15
     paginas = []
     
@@ -2642,23 +2614,18 @@ async def leaderboard(interaction: discord.Interaction):
         pagina = usuarios_validos[i:i + items_por_pagina]
         paginas.append(pagina)
 
-    # Calcular total de dinero (para estadísticas)
-    total_dinero = sum(money for _, money, _ in usuarios_validos)
-
-    # Si solo hay una página, mostrarla directamente
+    # Vista principal
     if len(paginas) == 1:
-        embed = crear_embed_leaderboard(paginas[0], 1, 1, len(usuarios_validos), total_dinero)
+        embed = crear_embed_coins(paginas[0], 1, 1, len(usuarios_validos), dinero_total_actual, dinero_total_anterior, precio_nuevo)
         await interaction.followup.send(embed=embed)
-        return
-
-    # Si hay múltiples páginas, usar vista con botones
-    view = LeaderboardView(paginas, 0, len(usuarios_validos), total_dinero)
-    embed = crear_embed_leaderboard(paginas[0], 1, len(paginas), len(usuarios_validos), total_dinero)
-    await interaction.followup.send(embed=embed, view=view)
+    else:
+        view = LeaderboardCoinsView(paginas, 0, len(usuarios_validos), dinero_total_actual, dinero_total_anterior, precio_nuevo)
+        embed = crear_embed_coins(paginas[0], 1, len(paginas), len(usuarios_validos), dinero_total_actual, dinero_total_anterior, precio_nuevo)
+        await interaction.followup.send(embed=embed, view=view)
 
 
-def crear_embed_leaderboard(usuarios, pagina_actual, total_paginas, total_usuarios, total_dinero):
-    """Crea un embed con la lista de usuarios de una página"""
+def crear_embed_coins(usuarios, pagina_actual, total_paginas, total_usuarios, dinero_actual, dinero_anterior, precio_nuevo):
+    """Crea embed para leaderboard de monedas"""
     
     descripcion = ""
     posicion_inicio = (pagina_actual - 1) * 15 + 1
@@ -2667,7 +2634,6 @@ def crear_embed_leaderboard(usuarios, pagina_actual, total_paginas, total_usuari
         posicion = posicion_inicio + idx
         medalla = ""
         
-        # Medallas para los primeros 3 puestos
         if posicion == 1:
             medalla = "🥇 "
         elif posicion == 2:
@@ -2679,49 +2645,50 @@ def crear_embed_leaderboard(usuarios, pagina_actual, total_paginas, total_usuari
         else:
             medalla = "• "
         
-        # Formatear el dinero
         dinero_formateado = fmt(int(money))
-        
-        # Agregar al texto
         descripcion += f"{medalla} **#{posicion}** {nombre}: `{dinero_formateado}`\n"
     
     embed = discord.Embed(
-        title="🏆 Leaderboard - Ranking de Riqueza",
+        title="💰 Leaderboard - Monedas",
         description=descripcion or "No hay usuarios en esta página.",
         color=discord.Color.gold()
     )
     
-    # Agregar estadísticas
-    embed.add_field(
-        name="📊 Estadísticas",
-        value=f"👥 **Usuarios activos:** {total_usuarios}\n"
-              f"💰 **Dinero total:** {fmt(total_dinero)}",
-        inline=False
+    # Calcular variación de precio
+    variacion = ((precio_nuevo - PRECIO_BASE_NIVEL) / PRECIO_BASE_NIVEL) * 100
+    
+    # Estadísticas con precio de nivel
+    stats = (
+        f"👥 **Usuarios activos:** {total_usuarios}\n"
+        f"💰 **Dinero total:** {fmt(dinero_actual)}\n"
+        f"📊 **Dinero base:** {fmt(dinero_anterior)}\n"
+        f"⚖️ **Precio base nivel:** {fmt(PRECIO_BASE_NIVEL)}\n"
+        f"🔄 **Precio nuevo nivel:** {fmt(precio_nuevo)} ({variacion:+.1f}%)"
     )
     
+    embed.add_field(name="📊 Estadísticas", value=stats, inline=False)
     embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando {len(usuarios)} usuarios")
     
     return embed
 
 
-class LeaderboardView(discord.ui.View):
-    """Vista con botones para navegar páginas del leaderboard"""
+class LeaderboardCoinsView(discord.ui.View):
+    """Vista con botones para leaderboard de monedas"""
     
-    def __init__(self, paginas, pagina_index, total_usuarios, total_dinero):
+    def __init__(self, paginas, pagina_index, total_usuarios, dinero_actual, dinero_anterior, precio_nuevo):
         super().__init__(timeout=60)
         self.paginas = paginas
         self.pagina_index = pagina_index
         self.total_usuarios = total_usuarios
-        self.total_dinero = total_dinero
+        self.dinero_actual = dinero_actual
+        self.dinero_anterior = dinero_anterior
+        self.precio_nuevo = precio_nuevo
         self.message = None
         
-        # Configurar botones según la página actual
         self.primera.disabled = (pagina_index == 0)
         self.anterior.disabled = (pagina_index == 0)
         self.siguiente.disabled = (pagina_index == len(paginas) - 1)
         self.ultima.disabled = (pagina_index == len(paginas) - 1)
-        
-        # Texto del botón de página
         self.pagina_actual.label = f"Página {pagina_index + 1}/{len(paginas)}"
 
     @discord.ui.button(label="⏪", style=discord.ButtonStyle.secondary)
@@ -2736,7 +2703,6 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="Página 1/1", style=discord.ButtonStyle.gray, disabled=True)
     async def pagina_actual(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Este botón solo muestra información, no hace nada
         pass
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
@@ -2750,20 +2716,20 @@ class LeaderboardView(discord.ui.View):
         await self.actualizar_pagina(interaction)
 
     async def actualizar_pagina(self, interaction: discord.Interaction):
-        # Actualizar estado de botones
         self.primera.disabled = (self.pagina_index == 0)
         self.anterior.disabled = (self.pagina_index == 0)
         self.siguiente.disabled = (self.pagina_index == len(self.paginas) - 1)
         self.ultima.disabled = (self.pagina_index == len(self.paginas) - 1)
         self.pagina_actual.label = f"Página {self.pagina_index + 1}/{len(self.paginas)}"
         
-        # Crear nuevo embed
-        embed = crear_embed_leaderboard(
+        embed = crear_embed_coins(
             self.paginas[self.pagina_index], 
             self.pagina_index + 1, 
             len(self.paginas),
             self.total_usuarios,
-            self.total_dinero
+            self.dinero_actual,
+            self.dinero_anterior,
+            self.precio_nuevo
         )
         
         await interaction.response.edit_message(embed=embed, view=self)
@@ -2771,7 +2737,207 @@ class LeaderboardView(discord.ui.View):
     async def on_timeout(self):
         if self.message:
             try:
-                # Deshabilitar botones al expirar
+                for item in self.children:
+                    item.disabled = True
+                await self.message.edit(view=self)
+            except:
+                pass
+
+
+# ============================
+# LEADERBOARD DE CRYPTOS (muestra cantidades, no valor)
+# ============================
+async def leaderboard_crypto(interaction: discord.Interaction):
+    
+    cryptos_data = load_cryptos()
+    holders = cryptos_data.get("holders", {})
+    
+    if not holders:
+        return await interaction.followup.send("😔 No hay holders de cryptos todavía.", ephemeral=True)
+
+    # Crear lista de usuarios con sus cryptos
+    usuarios_crypto = []
+    
+    for uid, cryptos_dict in holders.items():
+        tiene_crypto = False
+        total_tickets = 0
+        cryptos_detalle = []
+        
+        # Verificar cada crypto
+        for sym in ("RSC", "CTC", "MMC"):
+            cantidad = cryptos_dict.get(sym, 0)
+            if cantidad > 0:
+                tiene_crypto = True
+                total_tickets += cantidad
+                cryptos_detalle.append(f"{sym}: {cantidad:.2f}")
+        
+        if tiene_crypto:
+            try:
+                if str(uid).isdigit():
+                    user = interaction.guild.get_member(int(uid))
+                    if user:
+                        usuarios_crypto.append((uid, total_tickets, user.display_name, cryptos_detalle))
+                    else:
+                        try:
+                            user = await interaction.guild.fetch_member(int(uid))
+                            if user:
+                                usuarios_crypto.append((uid, total_tickets, user.display_name, cryptos_detalle))
+                            else:
+                                usuarios_crypto.append((uid, total_tickets, f"Usuario {uid[:4]}", cryptos_detalle))
+                        except:
+                            usuarios_crypto.append((uid, total_tickets, f"Usuario {uid[:4]}", cryptos_detalle))
+            except:
+                usuarios_crypto.append((uid, total_tickets, f"Usuario {uid[:4]}", cryptos_detalle))
+
+    if not usuarios_crypto:
+        return await interaction.followup.send("😔 No hay usuarios con cryptos en el servidor.", ephemeral=True)
+
+    # Ordenar por cantidad total de tickets (suma de todas las cryptos)
+    usuarios_crypto.sort(key=lambda x: x[1], reverse=True)
+
+    # Calcular total de tickets
+    total_tickets_global = sum(tickets for _, tickets, _, _ in usuarios_crypto)
+    
+    # Calcular precio base y nuevo para nivel de cryptos
+    precio_base_crypto = 500  # Precio base para nivel de cryptos
+    total_anterior_crypto = int(total_tickets_global * 0.85) or 1
+    precio_nuevo_crypto = int(precio_base_crypto * total_anterior_crypto / total_tickets_global)
+
+    # Crear páginas
+    items_por_pagina = 15
+    paginas = []
+    
+    for i in range(0, len(usuarios_crypto), items_por_pagina):
+        pagina = usuarios_crypto[i:i + items_por_pagina]
+        paginas.append(pagina)
+
+    # Vista principal
+    if len(paginas) == 1:
+        embed = crear_embed_crypto(paginas[0], 1, 1, len(usuarios_crypto), total_tickets_global, total_anterior_crypto, precio_base_crypto, precio_nuevo_crypto)
+        await interaction.followup.send(embed=embed)
+    else:
+        view = LeaderboardCryptoView(paginas, 0, len(usuarios_crypto), total_tickets_global, total_anterior_crypto, precio_base_crypto, precio_nuevo_crypto)
+        embed = crear_embed_crypto(paginas[0], 1, len(paginas), len(usuarios_crypto), total_tickets_global, total_anterior_crypto, precio_base_crypto, precio_nuevo_crypto)
+        await interaction.followup.send(embed=embed, view=view)
+
+
+def crear_embed_crypto(usuarios, pagina_actual, total_paginas, total_usuarios, total_tickets, total_anterior, precio_base, precio_nuevo):
+    """Crea embed para leaderboard de cryptos mostrando cantidades"""
+    
+    descripcion = ""
+    posicion_inicio = (pagina_actual - 1) * 15 + 1
+    
+    for idx, (uid, tickets, nombre, detalles) in enumerate(usuarios):
+        posicion = posicion_inicio + idx
+        medalla = ""
+        
+        if posicion == 1:
+            medalla = "🥇 "
+        elif posicion == 2:
+            medalla = "🥈 "
+        elif posicion == 3:
+            medalla = "🥉 "
+        elif posicion <= 10:
+            medalla = "🔹 "
+        else:
+            medalla = "• "
+        
+        # Mostrar las cryptos que tiene (hasta 3, una por línea)
+        crypto_text = "\n".join(detalles) if detalles else "Sin cryptos"
+        
+        descripcion += f"{medalla} **#{posicion}** {nombre}\n`{crypto_text}`\n\n"
+    
+    embed = discord.Embed(
+        title="💎 Leaderboard - Tenencias de Cryptos",
+        description=descripcion or "No hay usuarios en esta página.",
+        color=discord.Color.blue()
+    )
+    
+    # Calcular variación
+    variacion = ((precio_nuevo - precio_base) / precio_base) * 100
+    
+    # Estadísticas con precio de nivel
+    stats = (
+        f"👥 **Holders activos:** {total_usuarios}\n"
+        f"🎟️ **Total tickets:** {fmt(int(total_tickets))}\n"
+        f"📊 **Tickets base:** {fmt(int(total_anterior))}\n"
+        f"⚖️ **Precio base nivel:** {fmt(precio_base)}\n"
+        f"🔄 **Precio nuevo nivel:** {fmt(precio_nuevo)} ({variacion:+.1f}%)"
+    )
+    
+    embed.add_field(name="📊 Estadísticas", value=stats, inline=False)
+    embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando cantidad de cryptos")
+    
+    return embed
+
+
+class LeaderboardCryptoView(discord.ui.View):
+    """Vista con botones para leaderboard de cryptos"""
+    
+    def __init__(self, paginas, pagina_index, total_usuarios, total_tickets, total_anterior, precio_base, precio_nuevo):
+        super().__init__(timeout=60)
+        self.paginas = paginas
+        self.pagina_index = pagina_index
+        self.total_usuarios = total_usuarios
+        self.total_tickets = total_tickets
+        self.total_anterior = total_anterior
+        self.precio_base = precio_base
+        self.precio_nuevo = precio_nuevo
+        self.message = None
+        
+        self.primera.disabled = (pagina_index == 0)
+        self.anterior.disabled = (pagina_index == 0)
+        self.siguiente.disabled = (pagina_index == len(paginas) - 1)
+        self.ultima.disabled = (pagina_index == len(paginas) - 1)
+        self.pagina_actual.label = f"Página {pagina_index + 1}/{len(paginas)}"
+
+    @discord.ui.button(label="⏪", style=discord.ButtonStyle.secondary)
+    async def primera(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index = 0
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
+    async def anterior(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index -= 1
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="Página 1/1", style=discord.ButtonStyle.gray, disabled=True)
+    async def pagina_actual(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
+    async def siguiente(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index += 1
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="⏩", style=discord.ButtonStyle.secondary)
+    async def ultima(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index = len(self.paginas) - 1
+        await self.actualizar_pagina(interaction)
+
+    async def actualizar_pagina(self, interaction: discord.Interaction):
+        self.primera.disabled = (self.pagina_index == 0)
+        self.anterior.disabled = (self.pagina_index == 0)
+        self.siguiente.disabled = (self.pagina_index == len(self.paginas) - 1)
+        self.ultima.disabled = (self.pagina_index == len(self.paginas) - 1)
+        self.pagina_actual.label = f"Página {self.pagina_index + 1}/{len(self.paginas)}"
+        
+        embed = crear_embed_crypto(
+            self.paginas[self.pagina_index], 
+            self.pagina_index + 1, 
+            len(self.paginas),
+            self.total_usuarios,
+            self.total_tickets,
+            self.total_anterior,
+            self.precio_base,
+            self.precio_nuevo
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_timeout(self):
+        if self.message:
+            try:
                 for item in self.children:
                     item.disabled = True
                 await self.message.edit(view=self)
