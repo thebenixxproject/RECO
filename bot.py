@@ -60,13 +60,48 @@ def format_timestamp(timestamp):
 # -------------------------
 # Archivos / datos
 # -------------------------
+
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Archivos principales
+BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
+SHARED_FILE = os.path.join(DATA_DIR, "sharedaccounts.json")
+CRYPTO_FILE = os.path.join(DATA_DIR, "cryptos.json")
+TRANSACTIONS_FILE = os.path.join(DATA_DIR, "transactions.json")
+
 # Archivos para niveles y tienda
 LEVELS_FILE = os.path.join(DATA_DIR, "levels.json")
 SHOP_FILE = os.path.join(DATA_DIR, "shop.json")
 XP_CONFIG_FILE = os.path.join(DATA_DIR, "xp_config.json")
+LEVEL_PRICE_FILE = os.path.join(DATA_DIR, "level_price.json")
+PRICE_HISTORY_FILE = os.path.join(DATA_DIR, "price_history.json")
 
-# Configuración de XP (similar a Arcane)
-# Arcane usa: XP = 5 * (nivel^2) para pasar de nivel, pero ajustado
+# Archivos para sorteos y otros
+SORTEOS_FILE = os.path.join(DATA_DIR, "sorteos.json")
+GIFTS_FILE = os.path.join(DATA_DIR, "gifts.json")
+BUFFS_FILE = os.path.join(DATA_DIR, "buffs.json")
+INVEST_COOLDOWN_FILE = os.path.join(DATA_DIR, "invest_cooldowns.json")
+INVEST_COMPANIES_FILE = os.path.join(DATA_DIR, "invest_companies.json")
+POST_COOLDOWN_FILE = os.path.join(DATA_DIR, "post_cooldowns.json")
+
+
+def load_json(path, default=None):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return default or {}
+    return default or {}
+
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+
+# ========== FUNCIONES DE NIVELES ==========
+
 def xp_required_for_level(level):
     """XP necesaria para pasar de nivel (similar a Arcane)"""
     # Fórmula: 5 * level^2 (Arcane style)
@@ -102,29 +137,24 @@ def load_xp_config():
 
 def save_xp_config(data):
     save_json(XP_CONFIG_FILE, data)
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
-SHARED_FILE = os.path.join(DATA_DIR, "sharedaccounts.json")
-CRYPTO_FILE = os.path.join(DATA_DIR, "cryptos.json")
-TRANSACTIONS_FILE = os.path.join(DATA_DIR, "transactions.json")
 
-def load_json(path, default=None):
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return default or {}
-    return default or {}
+def load_level_price():
+    """Carga el precio actual del nivel"""
+    data = load_json(LEVEL_PRICE_FILE, {"price": 122})
+    return data.get("price", 122)
 
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+def save_level_price(price):
+    """Guarda el precio del nivel"""
+    save_json(LEVEL_PRICE_FILE, {"price": price})
 
-# load persistent data (won't reset on deploy)
+
+# ========== DATOS PERSISTENTES ==========
 balances = load_json(BALANCES_FILE, {})
 shared_accounts = load_json(SHARED_FILE, {})
+
+# Precio del nivel (se carga al inicio)
+PRECIO_NIVEL = load_level_price()
+
 
 def embed_card(title=None, description=None):
     e = discord.Embed(
@@ -134,7 +164,6 @@ def embed_card(title=None, description=None):
     )
     e.set_thumbnail(url="https://cdn.discordapp.com/embed/avatars/0.png")
     return e
-
 # -------------------------
 # Bot subclass for setup_hook
 # -------------------------
