@@ -60,7 +60,48 @@ def format_timestamp(timestamp):
 # -------------------------
 # Archivos / datos
 # -------------------------
+# Archivos para niveles y tienda
+LEVELS_FILE = os.path.join(DATA_DIR, "levels.json")
+SHOP_FILE = os.path.join(DATA_DIR, "shop.json")
+XP_CONFIG_FILE = os.path.join(DATA_DIR, "xp_config.json")
 
+# Configuración de XP (similar a Arcane)
+# Arcane usa: XP = 5 * (nivel^2) para pasar de nivel, pero ajustado
+def xp_required_for_level(level):
+    """XP necesaria para pasar de nivel (similar a Arcane)"""
+    # Fórmula: 5 * level^2 (Arcane style)
+    return 5 * (level ** 2)
+
+def level_from_xp(xp):
+    """Calcula el nivel a partir de XP"""
+    level = 0
+    while xp_required_for_level(level + 1) <= xp:
+        level += 1
+    return level
+
+def xp_progress(level, xp):
+    """Retorna (xp_actual_en_nivel, xp_necesaria_para_siguiente)"""
+    xp_needed = xp_required_for_level(level + 1)
+    xp_in_current = xp - sum(xp_required_for_level(l) for l in range(1, level + 1))
+    return xp_in_current, xp_needed
+
+def load_levels():
+    return load_json(LEVELS_FILE, {})
+
+def save_levels(data):
+    save_json(LEVELS_FILE, data)
+
+def load_shop():
+    return load_json(SHOP_FILE, {"items": []})
+
+def save_shop(data):
+    save_json(SHOP_FILE, data)
+
+def load_xp_config():
+    return load_json(XP_CONFIG_FILE, {"cooldown": 60, "base_xp": 15, "max_xp": 25})
+
+def save_xp_config(data):
+    save_json(XP_CONFIG_FILE, data)
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
@@ -212,7 +253,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("YEEZY HOW YOU DOIN HUH" \
+    await interaction.followup.send("chat cuanto me dan del 1/10?" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -353,11 +394,51 @@ async def remove(interaction: discord.Interaction, usuario: discord.User, cantid
 async def profile(interaction: discord.Interaction, usuario: Optional[discord.User] = None):
     if not await ensure_guild_or_reply(interaction):
         return
+    
     u = usuario or interaction.user
     uid = str(u.id)
+    
+    # Balance de monedas
     bal = balances.get(uid, 0)
-    embed = dark_embed(f"💼 Perfil — {u.display_name}", f"**💰 Balance:** {fmt(bal)}")
+    
+    # Nivel y XP
+    levels_data = load_levels()
+    user_xp = levels_data.get(uid, {}).get("xp", 0)
+    user_level = level_from_xp(user_xp)
+    xp_actual, xp_necesaria = xp_progress(user_level, user_xp)
+    porcentaje_nivel = (xp_actual / xp_necesaria * 100) if xp_necesaria > 0 else 0
+    
+    # Barra de progreso
+    barra = crear_barra_progreso(xp_actual, xp_necesaria, 12)
+    
+    # Porcentaje de la plata total (para nivel)
+    balances_data = load_json(BALANCES_FILE, {})
+    total_dinero = sum(balances_data.values())
+    porcentaje_plata = (bal / total_dinero * 100) if total_dinero > 0 else 0
+    
+    embed = dark_embed(f"💼 Perfil — {u.display_name}", "")
     embed.set_thumbnail(url=u.display_avatar.url)
+    
+    embed.add_field(name="💰 Balance", value=f"`{fmt(bal)}`", inline=True)
+    embed.add_field(name="⭐ Nivel", value=f"`{user_level}`", inline=True)
+    embed.add_field(name="📊 Progreso", value=f"`{barra}` {xp_actual}/{xp_necesaria} XP ({porcentaje_nivel:.1f}%)", inline=False)
+    embed.add_field(name="📈 % de la economía total", value=f"`{porcentaje_plata:.2f}%`", inline=True)
+    
+    # Si tiene cryptos, mostrarlas
+    cryptos_data = load_cryptos()
+    holders = cryptos_data.get("holders", {})
+    user_cryptos = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
+    
+    cryptos_text = ""
+    for sym in ("RSC", "CTC", "MMC"):
+        cant = user_cryptos.get(sym, 0)
+        if cant > 0:
+            valor = cant * cryptos_data[sym]["price"]
+            cryptos_text += f"{sym}: {cant:.2f} (≈ {fmt(int(valor))})\n"
+    
+    if cryptos_text:
+        embed.add_field(name="💎 Cryptos", value=cryptos_text, inline=False)
+    
     await interaction.response.send_message(embed=embed)
 
 @tree.command(name="transfer", description="Transferir monedas a otro usuario")
@@ -2527,16 +2608,529 @@ async def blackjack(interaction: discord.Interaction, bet: str):
     except:
         view.message = None
 # ============================
-# /leaderboard — Sistema completo (coins y crypto)
+# SISTEMA DE PRECIO DE NIVEL
 # ============================
 
-# Precio base del nivel (lo podés ajustar)
-PRECIO_BASE_NIVEL = 1035
+LEVEL_PRICE_FILE = os.path.join(DATA_DIR, "level_price.json")
 
-@tree.command(name="leaderboard", description="📊 Ver ranking de monedas o cryptos")
+def load_level_price():
+    """Carga el precio actual del nivel"""
+    data = load_json(LEVEL_PRICE_FILE, {"price": 122})  # Default 122
+    return data.get("price", 122)
+
+def save_level_price(price):
+    """Guarda el precio del nivel"""
+    save_json(LEVEL_PRICE_FILE, {"price": price})
+
+# Precio actual del nivel (se carga al iniciar)
+PRECIO_NIVEL = load_level_price()
+
+# ============================
+# /setlevel - Administrar niveles
+# ============================
+@tree.command(name="setlevel", description="👑 (Admin) Agregar, restar o establecer niveles a un usuario")
 @app_commands.describe(
-    tipo="coins (monedas) o crypto (criptomonedas)"
+    usuario="Usuario a modificar",
+    accion="add (sumar), remove (restar), set (establecer)",
+    cantidad="Cantidad de niveles a modificar"
 )
+@app_commands.choices(accion=[
+    app_commands.Choice(name="➕ Agregar niveles", value="add"),
+    app_commands.Choice(name="➖ Restar niveles", value="remove"),
+    app_commands.Choice(name="⚙️ Establecer nivel exacto", value="set")
+])
+async def setlevel(interaction: discord.Interaction, usuario: discord.User, accion: app_commands.Choice[str], cantidad: int):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
+    
+    if cantidad < 0:
+        return await interaction.response.send_message("❌ La cantidad no puede ser negativa.", ephemeral=True)
+    
+    uid = str(usuario.id)
+    levels_data = load_levels()
+    
+    # Obtener XP actual
+    current_xp = levels_data.get(uid, {}).get("xp", 0)
+    current_level = level_from_xp(current_xp)
+    
+    nuevo_nivel = current_level
+    
+    if accion.value == "add":
+        nuevo_nivel = current_level + cantidad
+        accion_texto = f"➕ Se agregaron **{cantidad}** niveles a {usuario.mention}"
+    elif accion.value == "remove":
+        nuevo_nivel = max(0, current_level - cantidad)
+        accion_texto = f"➖ Se restaron **{cantidad}** niveles a {usuario.mention}"
+    else:  # set
+        nuevo_nivel = cantidad
+        accion_texto = f"⚙️ Se estableció el nivel de {usuario.mention} a **{cantidad}**"
+    
+    # Calcular XP necesaria para el nuevo nivel
+    nueva_xp = 0
+    for lvl in range(1, nuevo_nivel + 1):
+        nueva_xp += xp_required_for_level(lvl)
+    
+    # Guardar
+    if uid not in levels_data:
+        levels_data[uid] = {}
+    levels_data[uid]["xp"] = nueva_xp
+    save_levels(levels_data)
+    
+    embed = discord.Embed(
+        title="👑 Modificación de Nivel",
+        description=accion_texto,
+        color=discord.Color.green()
+    )
+    embed.add_field(name="📊 Nivel anterior", value=f"`{current_level}`", inline=True)
+    embed.add_field(name="📈 Nivel nuevo", value=f"`{nuevo_nivel}`", inline=True)
+    embed.add_field(name="⭐ XP total", value=f"`{fmt(int(nueva_xp))}`", inline=True)
+    embed.set_footer(text=f"Modificado por {interaction.user.display_name}")
+    
+    await interaction.response.send_message(embed=embed)
+# ============================
+# TIENDA POR DEFECTO
+# ============================
+
+DEFAULT_SHOP_ITEMS = [
+    # ITEMS NORMALES (nivel 0)
+    {"name": "Timeout a cualquier usuario 1 min", "price": 10560, "level_required": 0},
+    {"name": "Timeout a cualquier usuario 5 min", "price": 31680, "level_required": 0},
+    {"name": "Timeout a cualquier usuario 10 min", "price": 52800, "level_required": 0},
+    {"name": "Timeout a cualquier usuario 1 hora", "price": 116160, "level_required": 0},
+    {"name": "Timeout a cualquier usuario 1 día", "price": 654240, "level_required": 0},
+    
+    # ITEMS NIVEL +50
+    {"name": "Timeout a cualquier usuario 1 min (VIP)", "price": 5280, "level_required": 50},
+    {"name": "Timeout a cualquier usuario 5 min (VIP)", "price": 15840, "level_required": 50},
+    {"name": "Timeout a cualquier usuario 10 min (VIP)", "price": 26400, "level_required": 50},
+    {"name": "Timeout a cualquier usuario 1 hora (VIP)", "price": 63360, "level_required": 50},
+    {"name": "Timeout a cualquier usuario 1 día (VIP)", "price": 327120, "level_required": 50},
+    {"name": "Terminar encuesta antes de tiempo", "price": 31680, "level_required": 50},
+    {"name": "Rol Personalizado", "price": 63360, "level_required": 50},
+    
+    # ITEMS NIVEL +100
+    {"name": "Intercambio de XP a monedas", "price": 0, "level_required": 100},
+    {"name": "Habilidad de regatear", "price": 0, "level_required": 100},
+    {"name": "Crear un canal", "price": 0, "level_required": 100},  # Precio variable
+    {"name": "Permaban a cualquier usuario", "price": 264801600, "level_required": 100},
+    {"name": "Incumplir la regla 3 (temporal)", "price": 353760, "level_required": 100},
+    {"name": "Poder de presentar una regla", "price": 5280, "level_required": 100},
+    {"name": "Agregar algo al servidor", "price": 10560, "level_required": 100},
+    {"name": "Solicitación de actualización de tarjeta", "price": 528, "level_required": 100},
+    {"name": "Fast Pass a un usuario (por día)", "price": 8448, "level_required": 100},
+    
+    # ITEMS NIVEL +200
+    {"name": "Voto puede contar doble", "price": 10560, "level_required": 200},
+    {"name": "Acceso al casino privado", "price": 8448, "level_required": 200},
+    {"name": "Acceso al canal de spoilers", "price": 0, "level_required": 200},
+    {"name": "Rol Personalizado (Oferta)", "price": 42240, "level_required": 200},
+    {"name": "40% Off en tickets de sorteos", "price": 0, "level_required": 200},
+    {"name": "20% Off en Moneda a XP", "price": 0, "level_required": 200},
+    {"name": "Prioridad al hablar en VC", "price": 0, "level_required": 200},
+    {"name": "Crear un canal (VIP)", "price": 0, "level_required": 200},
+    {"name": "Compra de un texto en canal", "price": 0, "level_required": 200},
+    {"name": "Rol de vice-admin", "price": 1583320000, "level_required": 200},
+    
+    # ITEMS NIVEL +250
+    {"name": "20% Off en compra de canales", "price": 0, "level_required": 250},
+]
+
+def init_shop():
+    """Inicializa la tienda con los items por defecto si está vacía"""
+    shop_data = load_shop()
+    if not shop_data.get("items"):
+        shop_data["items"] = DEFAULT_SHOP_ITEMS.copy()
+        save_shop(shop_data)
+    return shop_data
+
+# Inicializar tienda al cargar
+init_shop()
+
+
+# ============================
+# /shop - Ver tienda
+# ============================
+@tree.command(name="shop", description="🛒 Ver la tienda de items")
+async def shop(interaction: discord.Interaction):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    uid = str(interaction.user.id)
+    levels_data = load_levels()
+    user_xp = levels_data.get(uid, {}).get("xp", 0)
+    user_level = level_from_xp(user_xp)
+    
+    shop_data = load_shop()
+    items = shop_data.get("items", [])
+    
+    # Separar items por nivel requerido
+    items_normales = [i for i in items if i["level_required"] == 0]
+    items_nivel50 = [i for i in items if i["level_required"] == 50]
+    items_nivel100 = [i for i in items if i["level_required"] == 100]
+    items_nivel200 = [i for i in items if i["level_required"] == 200]
+    items_nivel250 = [i for i in items if i["level_required"] == 250]
+    
+    embed = discord.Embed(
+        title="🛒 TIENDA",
+        description="Compra items especiales con tus monedas",
+        color=discord.Color.gold()
+    )
+    
+    # Items normales
+    if items_normales:
+        embed.add_field(
+            name="📦 **Items Generales** (Nivel 0+)",
+            value="\n".join([f"• {item['name']}: `{fmt(item['price'])}`" for item in items_normales[:10]]),
+            inline=False
+        )
+    
+    # Items nivel 50+
+    if items_nivel50 and user_level >= 50:
+        embed.add_field(
+            name="⭐ **Nivel 50+**",
+            value="\n".join([f"• {item['name']}: `{fmt(item['price'])}`" for item in items_nivel50]),
+            inline=False
+        )
+    elif items_nivel50:
+        embed.add_field(name="⭐ **Nivel 50+**", value="🔒 Desbloquea el nivel 50", inline=False)
+    
+    # Items nivel 100+
+    if items_nivel100 and user_level >= 100:
+        embed.add_field(
+            name="✨ **Nivel 100+**",
+            value="\n".join([f"• {item['name']}: `{fmt(item['price'])}`" for item in items_nivel100[:8]]),
+            inline=False
+        )
+    elif items_nivel100:
+        embed.add_field(name="✨ **Nivel 100+**", value="🔒 Desbloquea el nivel 100", inline=False)
+    
+    # Items nivel 200+
+    if items_nivel200 and user_level >= 200:
+        embed.add_field(
+            name="🔥 **Nivel 200+**",
+            value="\n".join([f"• {item['name']}: `{fmt(item['price'])}`" for item in items_nivel200[:8]]),
+            inline=False
+        )
+    elif items_nivel200:
+        embed.add_field(name="🔥 **Nivel 200+**", value="🔒 Desbloquea el nivel 200", inline=False)
+    
+    # Items nivel 250+
+    if items_nivel250 and user_level >= 250:
+        embed.add_field(
+            name="💎 **Nivel 250+**",
+            value="\n".join([f"• {item['name']}: `{fmt(item['price'])}`" for item in items_nivel250]),
+            inline=False
+        )
+    elif items_nivel250:
+        embed.add_field(name="💎 **Nivel 250+**", value="🔒 Desbloquea el nivel 250", inline=False)
+    
+    embed.set_footer(text=f"Tu nivel: {user_level} • Usa /buy <item> para comprar")
+    
+    await interaction.response.send_message(embed=embed)
+
+
+# ============================
+# /adminshop - Administrar tienda
+# ============================
+@tree.command(name="adminshop", description="👑 (Admin) Administrar la tienda")
+@app_commands.describe(
+    subcomando="newthing | changeprice | removething",
+    nombre="Nombre del item (para newthing)",
+    precio="Precio del item (para newthing o changeprice)",
+    nivel_requerido="Nivel requerido (0, 50, 100, 200, 250, o 'all' para todos)",
+    item_original="Nombre del item a modificar (para changeprice o removething)"
+)
+async def adminshop(
+    interaction: discord.Interaction, 
+    subcomando: str,
+    nombre: str = None,
+    precio: int = None,
+    nivel_requerido: str = None,
+    item_original: str = None
+):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
+    
+    subcomando = subcomando.lower()
+    shop_data = load_shop()
+    items = shop_data.get("items", [])
+    
+    # ===== NEWTHING =====
+    if subcomando == "newthing":
+        if not nombre or precio is None or not nivel_requerido:
+            return await interaction.response.send_message("❌ Usá: `/adminshop newthing nombre precio nivel` (nivel: all, 50, 100, 200, 250)", ephemeral=True)
+        
+        # Procesar nivel
+        if nivel_requerido.lower() == "all":
+            level_req = 0
+        else:
+            try:
+                level_req = int(nivel_requerido)
+                if level_req not in [0, 50, 100, 200, 250]:
+                    return await interaction.response.send_message("❌ Nivel requerido debe ser: 0, 50, 100, 200, 250 o 'all'", ephemeral=True)
+            except:
+                return await interaction.response.send_message("❌ Nivel inválido", ephemeral=True)
+        
+        # Verificar que no exista
+        if any(item["name"].lower() == nombre.lower() for item in items):
+            return await interaction.response.send_message("❌ Ya existe un item con ese nombre.", ephemeral=True)
+        
+        items.append({
+            "name": nombre,
+            "price": precio,
+            "level_required": level_req
+        })
+        
+        shop_data["items"] = items
+        save_shop(shop_data)
+        
+        await interaction.response.send_message(f"✅ Item **{nombre}** agregado a la tienda (Nivel {level_req if level_req > 0 else 'todos'}) por `{fmt(precio)}`")
+    
+    # ===== CHANGEPRICE =====
+    elif subcomando == "changeprice":
+        if not item_original or precio is None:
+            return await interaction.response.send_message("❌ Usá: `/adminshop changeprice item_original nuevo_precio`", ephemeral=True)
+        
+        # Buscar item
+        item_encontrado = None
+        for item in items:
+            if item["name"].lower() == item_original.lower():
+                item_encontrado = item
+                break
+        
+        if not item_encontrado:
+            return await interaction.response.send_message("❌ Item no encontrado.", ephemeral=True)
+        
+        item_encontrado["price"] = precio
+        save_shop(shop_data)
+        
+        await interaction.response.send_message(f"✅ Precio de **{item_encontrado['name']}** actualizado a `{fmt(precio)}`")
+    
+    # ===== REMOVETHING =====
+    elif subcomando == "removething":
+        if not item_original:
+            return await interaction.response.send_message("❌ Usá: `/adminshop removething item_a_eliminar`", ephemeral=True)
+        
+        # Buscar item
+        for i, item in enumerate(items):
+            if item["name"].lower() == item_original.lower():
+                items.pop(i)
+                save_shop(shop_data)
+                return await interaction.response.send_message(f"✅ Item **{item['name']}** eliminado de la tienda.")
+        
+        await interaction.response.send_message("❌ Item no encontrado.", ephemeral=True)
+    
+    else:
+        await interaction.response.send_message("❌ Subcomando inválido. Usá: newthing, changeprice, removething", ephemeral=True)
+
+
+# ============================
+# /buy - Comprar item de la tienda
+# ============================
+@tree.command(name="buy", description="🛒 Comprar un item de la tienda")
+@app_commands.describe(item="Nombre del item a comprar")
+async def buy(interaction: discord.Interaction, item: str):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    uid = str(interaction.user.id)
+    levels_data = load_levels()
+    user_xp = levels_data.get(uid, {}).get("xp", 0)
+    user_level = level_from_xp(user_xp)
+    user_balance = balances.get(uid, 0)
+    
+    shop_data = load_shop()
+    items = shop_data.get("items", [])
+    
+    # Buscar item
+    item_encontrado = None
+    for shop_item in items:
+        if shop_item["name"].lower() == item.lower():
+            item_encontrado = shop_item
+            break
+    
+    if not item_encontrado:
+        return await interaction.response.send_message("❌ Item no encontrado en la tienda.", ephemeral=True)
+    
+    # Verificar nivel
+    if user_level < item_encontrado["level_required"]:
+        return await interaction.response.send_message(f"❌ Necesitás nivel **{item_encontrado['level_required']}** para comprar esto.", ephemeral=True)
+    
+    # Verificar saldo
+    if user_balance < item_encontrado["price"]:
+        return await interaction.response.send_message(f"❌ Necesitás `{fmt(item_encontrado['price'])}` monedas. Tenés `{fmt(user_balance)}`.", ephemeral=True)
+    
+    # Cobrar
+    async with balances_lock:
+        balances[uid] -= item_encontrado["price"]
+        save_json(BALANCES_FILE, balances)
+    
+    # Registrar transacción
+    log_transaction(uid, -item_encontrado["price"], f"Compra: {item_encontrado['name']}")
+    
+    embed = discord.Embed(
+        title="🛒 Compra Exitosa",
+        description=f"Compraste **{item_encontrado['name']}** por `{fmt(item_encontrado['price'])}` monedas",
+        color=discord.Color.green()
+    )
+    
+    # Mensaje especial para items de nivel
+    embed.add_field(
+        name="📦 Item adquirido",
+        value=f"• {item_encontrado['name']}",
+        inline=False
+    )
+    
+    await interaction.response.send_message(embed=embed)
+    # ============================
+# /info - Información económica
+# ============================
+@tree.command(name="info", description="📊 Ver información económica del servidor")
+async def info(interaction: discord.Interaction):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    await interaction.response.defer()
+    
+    # Datos de monedas
+    balances_data = load_json(BALANCES_FILE, {})
+    total_monedas = sum(balances_data.values())
+    usuarios_con_monedas = len([b for b in balances_data.values() if b > 0])
+    
+    # Datos de cryptos
+    cryptos_data = load_cryptos()
+    holders = cryptos_data.get("holders", {})
+    total_crypto_holders = len([h for h in holders.values() if sum(h.values()) > 0])
+    
+    # Datos de niveles
+    levels_data = load_levels()
+    total_niveles = 0
+    usuarios_con_nivel = 0
+    for uid, data in levels_data.items():
+        xp = data.get("xp", 0)
+        level = level_from_xp(xp)
+        if level > 0:
+            total_niveles += level
+            usuarios_con_nivel += 1
+    
+    # Precio de nivel (calculado dinámicamente)
+    # Precio base = 1035 (como referencia, pero no se muestra en el leaderboard)
+    # Se guarda en archivo
+    level_price = load_level_price()
+    
+    embed = discord.Embed(
+        title="📊 Información Económica del Servidor",
+        description="Estadísticas generales de la economía",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="💰 Monedas",
+        value=f"**Total:** {fmt(total_monedas)}\n**Usuarios activos:** {usuarios_con_monedas}",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="💎 Cryptos",
+        value=f"**Holders:** {total_crypto_holders}\n**Cryptos:** RSC | CTC | MMC",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="⭐ Niveles",
+        value=f"**Niveles totales:** {fmt(total_niveles)}\n**Usuarios con nivel:** {usuarios_con_nivel}",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="💸 Precio de Nivel",
+        value=f"**Valor actual:** `{fmt(level_price)}` monedas\n*Se actualiza según la economía*",
+        inline=False
+    )
+    
+    # Gráfico simple del precio del nivel (si matplotlib está disponible)
+    if plt:
+        try:
+            # Crear historial de precios
+            PRICE_HISTORY_FILE = os.path.join(DATA_DIR, "price_history.json")
+            price_data = load_json(PRICE_HISTORY_FILE, {"history": []})
+            
+            # Agregar precio actual
+            price_data["history"].append(level_price)
+            if len(price_data["history"]) > 30:
+                price_data["history"] = price_data["history"][-30:]
+            save_json(PRICE_HISTORY_FILE, price_data)
+            
+            if len(price_data["history"]) > 1:
+                plt.style.use("dark_background")
+                fig, ax = plt.subplots(figsize=(8, 3))
+                ax.plot(price_data["history"], linewidth=2, color='gold')
+                ax.set_title("📈 Historial de Precio de Nivel")
+                ax.set_xlabel("Actualizaciones")
+                ax.set_ylabel("Precio")
+                ax.fill_between(range(len(price_data["history"])), price_data["history"], alpha=0.3, color='gold')
+                
+                buf = io.BytesIO()
+                plt.tight_layout()
+                fig.savefig(buf, format="png", dpi=150)
+                buf.seek(0)
+                plt.close()
+                
+                file = discord.File(buf, filename="price_history.png")
+                embed.set_image(url="attachment://price_history.png")
+                await interaction.followup.send(embed=embed, file=file)
+                return
+        except:
+            pass
+    
+    await interaction.followup.send(embed=embed)
+
+# ============================
+# /editlevelprice - Cambiar precio base del nivel
+# ============================
+@tree.command(name="editlevelprice", description="💰 (Admin) Cambiar el precio base del nivel")
+@app_commands.describe(nuevo_precio="Nuevo precio base del nivel")
+async def editlevelprice(interaction: discord.Interaction, nuevo_precio: int):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
+    
+    if nuevo_precio < 1:
+        return await interaction.response.send_message("❌ El precio debe ser mayor a 0.", ephemeral=True)
+    
+    global PRECIO_NIVEL
+    PRECIO_NIVEL = nuevo_precio
+    save_level_price(nuevo_precio)
+    
+    embed = discord.Embed(
+        title="💰 Precio de Nivel Actualizado",
+        description=f"El precio base del nivel ahora es **{fmt(nuevo_precio)}**",
+        color=discord.Color.green()
+    )
+    embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
+    
+    await interaction.response.send_message(embed=embed)
+
+
+# ============================
+# LEADERBOARD DE MONEDAS (SOLO PLATA)
+# ============================
+@tree.command(name="leaderboard", description="📊 Ver ranking de monedas o cryptos")
+@app_commands.describe(tipo="coins (monedas) o crypto (criptomonedas)")
 @app_commands.choices(tipo=[
     app_commands.Choice(name="💰 Monedas", value="coins"),
     app_commands.Choice(name="💎 Cryptos", value="crypto")
@@ -2546,7 +3140,6 @@ async def leaderboard(interaction: discord.Interaction, tipo: str = "coins"):
     if not await ensure_guild_or_reply(interaction):
         return
 
-    # Defer para evitar timeout
     await interaction.response.defer()
 
     if tipo == "coins":
@@ -2554,26 +3147,16 @@ async def leaderboard(interaction: discord.Interaction, tipo: str = "coins"):
     else:
         await leaderboard_crypto(interaction)
 
-
-# ============================
-# LEADERBOARD DE MONEDAS
-# ============================
 async def leaderboard_coins(interaction: discord.Interaction):
-    
-    # Leer balances
     balances_data = load_json(BALANCES_FILE, {})
-
+    
     if not balances_data:
         return await interaction.followup.send("😔 No hay datos de monedas todavía.", ephemeral=True)
 
-    # Filtrar usuarios válidos con dinero > 0
     usuarios_validos = []
-    dinero_total_anterior = 0  # Este debería venir de un histórico, pero usaremos el total actual como base
-    
     for uid, money in balances_data.items():
         if money <= 0:
             continue
-            
         try:
             if str(uid).isdigit():
                 user = interaction.guild.get_member(int(uid))
@@ -2592,48 +3175,30 @@ async def leaderboard_coins(interaction: discord.Interaction):
     if not usuarios_validos:
         return await interaction.followup.send("😔 No hay usuarios con monedas en el servidor.", ephemeral=True)
 
-    # Ordenar por dinero (mayor a menor)
     usuarios_validos.sort(key=lambda x: x[1], reverse=True)
 
-    # Calcular total de dinero actual
-    dinero_total_actual = sum(money for _, money, _ in usuarios_validos)
-    
-    # Simular un dinero total anterior (en un sistema real, esto vendría de un histórico)
-    # Por ahora, usamos el 90% del actual para que el cálculo sea visible
-    dinero_total_anterior = int(dinero_total_actual * 0.9) or 1  # Evitar división por cero
-
-    # Calcular nuevo precio del nivel
-    # Precio nuevo = Precio base × Dinero base / Dinero actual
-    precio_nuevo = int(PRECIO_BASE_NIVEL * dinero_total_anterior / dinero_total_actual)
-
-    # Crear páginas
     items_por_pagina = 15
     paginas = []
-    
     for i in range(0, len(usuarios_validos), items_por_pagina):
-        pagina = usuarios_validos[i:i + items_por_pagina]
-        paginas.append(pagina)
+        paginas.append(usuarios_validos[i:i + items_por_pagina])
 
-    # Vista principal
+    total_dinero = sum(money for _, money, _ in usuarios_validos)
+
     if len(paginas) == 1:
-        embed = crear_embed_coins(paginas[0], 1, 1, len(usuarios_validos), dinero_total_actual, dinero_total_anterior, precio_nuevo)
+        embed = crear_embed_coins_simple(paginas[0], 1, 1, len(usuarios_validos), total_dinero)
         await interaction.followup.send(embed=embed)
     else:
-        view = LeaderboardCoinsView(paginas, 0, len(usuarios_validos), dinero_total_actual, dinero_total_anterior, precio_nuevo)
-        embed = crear_embed_coins(paginas[0], 1, len(paginas), len(usuarios_validos), dinero_total_actual, dinero_total_anterior, precio_nuevo)
+        view = LeaderboardCoinsSimpleView(paginas, 0, len(usuarios_validos), total_dinero)
+        embed = crear_embed_coins_simple(paginas[0], 1, len(paginas), len(usuarios_validos), total_dinero)
         await interaction.followup.send(embed=embed, view=view)
 
-
-def crear_embed_coins(usuarios, pagina_actual, total_paginas, total_usuarios, dinero_actual, dinero_anterior, precio_nuevo):
-    """Crea embed para leaderboard de monedas"""
-    
+def crear_embed_coins_simple(usuarios, pagina_actual, total_paginas, total_usuarios, total_dinero):
     descripcion = ""
     posicion_inicio = (pagina_actual - 1) * 15 + 1
     
     for idx, (uid, money, nombre) in enumerate(usuarios):
         posicion = posicion_inicio + idx
         medalla = ""
-        
         if posicion == 1:
             medalla = "🥇 "
         elif posicion == 2:
@@ -2645,8 +3210,7 @@ def crear_embed_coins(usuarios, pagina_actual, total_paginas, total_usuarios, di
         else:
             medalla = "• "
         
-        dinero_formateado = fmt(int(money))
-        descripcion += f"{medalla} **#{posicion}** {nombre}: `{dinero_formateado}`\n"
+        descripcion += f"{medalla} **#{posicion}** {nombre}: `{fmt(int(money))}`\n"
     
     embed = discord.Embed(
         title="💰 Leaderboard - Monedas",
@@ -2654,35 +3218,21 @@ def crear_embed_coins(usuarios, pagina_actual, total_paginas, total_usuarios, di
         color=discord.Color.gold()
     )
     
-    # Calcular variación de precio
-    variacion = ((precio_nuevo - PRECIO_BASE_NIVEL) / PRECIO_BASE_NIVEL) * 100
-    
-    # Estadísticas con precio de nivel
-    stats = (
-        f"👥 **Usuarios activos:** {total_usuarios}\n"
-        f"💰 **Dinero total:** {fmt(dinero_actual)}\n"
-        f"📊 **Dinero base:** {fmt(dinero_anterior)}\n"
-        f"⚖️ **Precio base nivel:** {fmt(PRECIO_BASE_NIVEL)}\n"
-        f"🔄 **Precio nuevo nivel:** {fmt(precio_nuevo)} ({variacion:+.1f}%)"
+    embed.add_field(
+        name="📊 Estadísticas",
+        value=f"👥 **Usuarios activos:** {total_usuarios}\n💰 **Dinero total:** {fmt(total_dinero)}",
+        inline=False
     )
-    
-    embed.add_field(name="📊 Estadísticas", value=stats, inline=False)
     embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando {len(usuarios)} usuarios")
-    
     return embed
 
-
-class LeaderboardCoinsView(discord.ui.View):
-    """Vista con botones para leaderboard de monedas"""
-    
-    def __init__(self, paginas, pagina_index, total_usuarios, dinero_actual, dinero_anterior, precio_nuevo):
+class LeaderboardCoinsSimpleView(discord.ui.View):
+    def __init__(self, paginas, pagina_index, total_usuarios, total_dinero):
         super().__init__(timeout=60)
         self.paginas = paginas
         self.pagina_index = pagina_index
         self.total_usuarios = total_usuarios
-        self.dinero_actual = dinero_actual
-        self.dinero_anterior = dinero_anterior
-        self.precio_nuevo = precio_nuevo
+        self.total_dinero = total_dinero
         self.message = None
         
         self.primera.disabled = (pagina_index == 0)
@@ -2722,16 +3272,13 @@ class LeaderboardCoinsView(discord.ui.View):
         self.ultima.disabled = (self.pagina_index == len(self.paginas) - 1)
         self.pagina_actual.label = f"Página {self.pagina_index + 1}/{len(self.paginas)}"
         
-        embed = crear_embed_coins(
+        embed = crear_embed_coins_simple(
             self.paginas[self.pagina_index], 
             self.pagina_index + 1, 
             len(self.paginas),
             self.total_usuarios,
-            self.dinero_actual,
-            self.dinero_anterior,
-            self.precio_nuevo
+            self.total_dinero
         )
-        
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def on_timeout(self):
@@ -2745,30 +3292,23 @@ class LeaderboardCoinsView(discord.ui.View):
 
 
 # ============================
-# LEADERBOARD DE CRYPTOS (muestra cantidades, no valor)
+# LEADERBOARD DE CRYPTOS
 # ============================
 async def leaderboard_crypto(interaction: discord.Interaction):
-    
     cryptos_data = load_cryptos()
     holders = cryptos_data.get("holders", {})
     
     if not holders:
         return await interaction.followup.send("😔 No hay holders de cryptos todavía.", ephemeral=True)
 
-    # Crear lista de usuarios con sus cryptos
     usuarios_crypto = []
-    
     for uid, cryptos_dict in holders.items():
         tiene_crypto = False
-        total_tickets = 0
         cryptos_detalle = []
-        
-        # Verificar cada crypto
         for sym in ("RSC", "CTC", "MMC"):
             cantidad = cryptos_dict.get(sym, 0)
             if cantidad > 0:
                 tiene_crypto = True
-                total_tickets += cantidad
                 cryptos_detalle.append(f"{sym}: {cantidad:.2f}")
         
         if tiene_crypto:
@@ -2776,61 +3316,56 @@ async def leaderboard_crypto(interaction: discord.Interaction):
                 if str(uid).isdigit():
                     user = interaction.guild.get_member(int(uid))
                     if user:
-                        usuarios_crypto.append((uid, total_tickets, user.display_name, cryptos_detalle))
+                        usuarios_crypto.append((uid, user.display_name, cryptos_detalle))
                     else:
                         try:
                             user = await interaction.guild.fetch_member(int(uid))
                             if user:
-                                usuarios_crypto.append((uid, total_tickets, user.display_name, cryptos_detalle))
+                                usuarios_crypto.append((uid, user.display_name, cryptos_detalle))
                             else:
-                                usuarios_crypto.append((uid, total_tickets, f"Usuario {uid[:4]}", cryptos_detalle))
+                                usuarios_crypto.append((uid, f"Usuario {uid[:4]}", cryptos_detalle))
                         except:
-                            usuarios_crypto.append((uid, total_tickets, f"Usuario {uid[:4]}", cryptos_detalle))
+                            usuarios_crypto.append((uid, f"Usuario {uid[:4]}", cryptos_detalle))
             except:
-                usuarios_crypto.append((uid, total_tickets, f"Usuario {uid[:4]}", cryptos_detalle))
+                usuarios_crypto.append((uid, f"Usuario {uid[:4]}", cryptos_detalle))
 
     if not usuarios_crypto:
         return await interaction.followup.send("😔 No hay usuarios con cryptos en el servidor.", ephemeral=True)
 
-    # Ordenar por cantidad total de tickets (suma de todas las cryptos)
-    usuarios_crypto.sort(key=lambda x: x[1], reverse=True)
-
-    # Calcular total de tickets
-    total_tickets_global = sum(tickets for _, tickets, _, _ in usuarios_crypto)
+    def total_cryptos(user_data):
+        detalles = user_data[2]
+        total = 0
+        for d in detalles:
+            partes = d.split(": ")
+            if len(partes) == 2:
+                try:
+                    total += float(partes[1])
+                except:
+                    pass
+        return total
     
-    # Calcular precio base y nuevo para nivel de cryptos
-    precio_base_crypto = 500  # Precio base para nivel de cryptos
-    total_anterior_crypto = int(total_tickets_global * 0.85) or 1
-    precio_nuevo_crypto = int(precio_base_crypto * total_anterior_crypto / total_tickets_global)
+    usuarios_crypto.sort(key=total_cryptos, reverse=True)
 
-    # Crear páginas
-    items_por_pagina = 15
+    items_por_pagina = 10
     paginas = []
-    
     for i in range(0, len(usuarios_crypto), items_por_pagina):
-        pagina = usuarios_crypto[i:i + items_por_pagina]
-        paginas.append(pagina)
+        paginas.append(usuarios_crypto[i:i + items_por_pagina])
 
-    # Vista principal
     if len(paginas) == 1:
-        embed = crear_embed_crypto(paginas[0], 1, 1, len(usuarios_crypto), total_tickets_global, total_anterior_crypto, precio_base_crypto, precio_nuevo_crypto)
+        embed = crear_embed_crypto_simple(paginas[0], 1, 1, len(usuarios_crypto))
         await interaction.followup.send(embed=embed)
     else:
-        view = LeaderboardCryptoView(paginas, 0, len(usuarios_crypto), total_tickets_global, total_anterior_crypto, precio_base_crypto, precio_nuevo_crypto)
-        embed = crear_embed_crypto(paginas[0], 1, len(paginas), len(usuarios_crypto), total_tickets_global, total_anterior_crypto, precio_base_crypto, precio_nuevo_crypto)
+        view = LeaderboardCryptoSimpleView(paginas, 0, len(usuarios_crypto))
+        embed = crear_embed_crypto_simple(paginas[0], 1, len(paginas), len(usuarios_crypto))
         await interaction.followup.send(embed=embed, view=view)
 
-
-def crear_embed_crypto(usuarios, pagina_actual, total_paginas, total_usuarios, total_tickets, total_anterior, precio_base, precio_nuevo):
-    """Crea embed para leaderboard de cryptos mostrando cantidades"""
-    
+def crear_embed_crypto_simple(usuarios, pagina_actual, total_paginas, total_usuarios):
     descripcion = ""
-    posicion_inicio = (pagina_actual - 1) * 15 + 1
+    posicion_inicio = (pagina_actual - 1) * 10 + 1
     
-    for idx, (uid, tickets, nombre, detalles) in enumerate(usuarios):
+    for idx, (uid, nombre, detalles) in enumerate(usuarios):
         posicion = posicion_inicio + idx
         medalla = ""
-        
         if posicion == 1:
             medalla = "🥇 "
         elif posicion == 2:
@@ -2842,9 +3377,7 @@ def crear_embed_crypto(usuarios, pagina_actual, total_paginas, total_usuarios, t
         else:
             medalla = "• "
         
-        # Mostrar las cryptos que tiene (hasta 3, una por línea)
         crypto_text = "\n".join(detalles) if detalles else "Sin cryptos"
-        
         descripcion += f"{medalla} **#{posicion}** {nombre}\n`{crypto_text}`\n\n"
     
     embed = discord.Embed(
@@ -2853,36 +3386,16 @@ def crear_embed_crypto(usuarios, pagina_actual, total_paginas, total_usuarios, t
         color=discord.Color.blue()
     )
     
-    # Calcular variación
-    variacion = ((precio_nuevo - precio_base) / precio_base) * 100
-    
-    # Estadísticas con precio de nivel
-    stats = (
-        f"👥 **Holders activos:** {total_usuarios}\n"
-        f"🎟️ **Total tickets:** {fmt(int(total_tickets))}\n"
-        f"📊 **Tickets base:** {fmt(int(total_anterior))}\n"
-        f"⚖️ **Precio base nivel:** {fmt(precio_base)}\n"
-        f"🔄 **Precio nuevo nivel:** {fmt(precio_nuevo)} ({variacion:+.1f}%)"
-    )
-    
-    embed.add_field(name="📊 Estadísticas", value=stats, inline=False)
-    embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando cantidad de cryptos")
-    
+    embed.add_field(name="📊 Estadísticas", value=f"👥 **Holders activos:** {total_usuarios}", inline=False)
+    embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando tenencias")
     return embed
 
-
-class LeaderboardCryptoView(discord.ui.View):
-    """Vista con botones para leaderboard de cryptos"""
-    
-    def __init__(self, paginas, pagina_index, total_usuarios, total_tickets, total_anterior, precio_base, precio_nuevo):
+class LeaderboardCryptoSimpleView(discord.ui.View):
+    def __init__(self, paginas, pagina_index, total_usuarios):
         super().__init__(timeout=60)
         self.paginas = paginas
         self.pagina_index = pagina_index
         self.total_usuarios = total_usuarios
-        self.total_tickets = total_tickets
-        self.total_anterior = total_anterior
-        self.precio_base = precio_base
-        self.precio_nuevo = precio_nuevo
         self.message = None
         
         self.primera.disabled = (pagina_index == 0)
@@ -2922,17 +3435,12 @@ class LeaderboardCryptoView(discord.ui.View):
         self.ultima.disabled = (self.pagina_index == len(self.paginas) - 1)
         self.pagina_actual.label = f"Página {self.pagina_index + 1}/{len(self.paginas)}"
         
-        embed = crear_embed_crypto(
+        embed = crear_embed_crypto_simple(
             self.paginas[self.pagina_index], 
             self.pagina_index + 1, 
             len(self.paginas),
-            self.total_usuarios,
-            self.total_tickets,
-            self.total_anterior,
-            self.precio_base,
-            self.precio_nuevo
+            self.total_usuarios
         )
-        
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def on_timeout(self):
@@ -2943,7 +3451,241 @@ class LeaderboardCryptoView(discord.ui.View):
                 await self.message.edit(view=self)
             except:
                 pass
+            # ============================
+# /levelboard - Leaderboard de niveles
+# ============================
+@tree.command(name="levelboard", description="📈 Ver ranking de niveles")
+async def levelboard(interaction: discord.Interaction):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    await interaction.response.defer()
+    
+    levels_data = load_levels()
+    
+    if not levels_data:
+        return await interaction.followup.send("😔 No hay datos de niveles todavía.", ephemeral=True)
+    
+    # Crear lista de usuarios con niveles
+    usuarios_niveles = []
+    for uid, data in levels_data.items():
+        xp = data.get("xp", 0)
+        level = level_from_xp(xp)
+        if level > 0:
+            try:
+                if str(uid).isdigit():
+                    user = interaction.guild.get_member(int(uid))
+                    if user:
+                        usuarios_niveles.append((uid, level, xp, user.display_name))
+                    else:
+                        try:
+                            user = await interaction.guild.fetch_member(int(uid))
+                            if user:
+                                usuarios_niveles.append((uid, level, xp, user.display_name))
+                        except:
+                            continue
+            except:
+                continue
+    
+    if not usuarios_niveles:
+        return await interaction.followup.send("😔 No hay usuarios con niveles en el servidor.", ephemeral=True)
+    
+    usuarios_niveles.sort(key=lambda x: x[1], reverse=True)
+    
+    # Calcular estadísticas
+    total_niveles = sum(level for _, level, _, _ in usuarios_niveles)
+    nivel_mas_alto = usuarios_niveles[0][1]
+    
+    items_por_pagina = 15
+    paginas = []
+    for i in range(0, len(usuarios_niveles), items_por_pagina):
+        paginas.append(usuarios_niveles[i:i + items_por_pagina])
+    
+    if len(paginas) == 1:
+        embed = crear_embed_levelboard(paginas[0], 1, 1, len(usuarios_niveles), total_niveles, nivel_mas_alto)
+        await interaction.followup.send(embed=embed)
+    else:
+        view = LevelboardView(paginas, 0, len(usuarios_niveles), total_niveles, nivel_mas_alto)
+        embed = crear_embed_levelboard(paginas[0], 1, len(paginas), len(usuarios_niveles), total_niveles, nivel_mas_alto)
+        await interaction.followup.send(embed=embed, view=view)
 
+def crear_embed_levelboard(usuarios, pagina_actual, total_paginas, total_usuarios, total_niveles, nivel_mas_alto):
+    descripcion = ""
+    posicion_inicio = (pagina_actual - 1) * 15 + 1
+    
+    for idx, (uid, level, xp, nombre) in enumerate(usuarios):
+        posicion = posicion_inicio + idx
+        medalla = ""
+        if posicion == 1:
+            medalla = "👑 "
+        elif posicion == 2:
+            medalla = "🥈 "
+        elif posicion == 3:
+            medalla = "🥉 "
+        else:
+            medalla = "🔹 "
+        
+        # XP actual en este nivel
+        xp_actual, xp_necesaria = xp_progress(level, xp)
+        barra = crear_barra_progreso(xp_actual, xp_necesaria, 10)
+        
+        descripcion += f"{medalla} **#{posicion}** {nombre} • Nivel `{level}`\n"
+        descripcion += f"`{barra}` {xp_actual}/{xp_necesaria} XP\n\n"
+    
+    embed = discord.Embed(
+        title="📈 Leaderboard - Niveles",
+        description=descripcion or "No hay usuarios en esta página.",
+        color=discord.Color.purple()
+    )
+    
+    embed.add_field(
+        name="📊 Estadísticas",
+        value=f"👥 **Usuarios activos:** {total_usuarios}\n⭐ **Nivel más alto:** {nivel_mas_alto}\n📚 **Total de niveles:** {total_niveles}",
+        inline=False
+    )
+    embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando {len(usuarios)} usuarios")
+    return embed
+
+def crear_barra_progreso(actual, total, longitud=10):
+    """Crea una barra de progreso visual"""
+    if total <= 0:
+        return "⬜" * longitud
+    porcentaje = actual / total
+    llenos = int(porcentaje * longitud)
+    vacios = longitud - llenos
+    return "🟩" * llenos + "⬜" * vacios
+
+class LevelboardView(discord.ui.View):
+    def __init__(self, paginas, pagina_index, total_usuarios, total_niveles, nivel_mas_alto):
+        super().__init__(timeout=60)
+        self.paginas = paginas
+        self.pagina_index = pagina_index
+        self.total_usuarios = total_usuarios
+        self.total_niveles = total_niveles
+        self.nivel_mas_alto = nivel_mas_alto
+        self.message = None
+        
+        self.primera.disabled = (pagina_index == 0)
+        self.anterior.disabled = (pagina_index == 0)
+        self.siguiente.disabled = (pagina_index == len(paginas) - 1)
+        self.ultima.disabled = (pagina_index == len(paginas) - 1)
+        self.pagina_actual.label = f"Página {pagina_index + 1}/{len(paginas)}"
+
+    @discord.ui.button(label="⏪", style=discord.ButtonStyle.secondary)
+    async def primera(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index = 0
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
+    async def anterior(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index -= 1
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="Página 1/1", style=discord.ButtonStyle.gray, disabled=True)
+    async def pagina_actual(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
+    async def siguiente(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index += 1
+        await self.actualizar_pagina(interaction)
+
+    @discord.ui.button(label="⏩", style=discord.ButtonStyle.secondary)
+    async def ultima(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.pagina_index = len(self.paginas) - 1
+        await self.actualizar_pagina(interaction)
+
+    async def actualizar_pagina(self, interaction: discord.Interaction):
+        self.primera.disabled = (self.pagina_index == 0)
+        self.anterior.disabled = (self.pagina_index == 0)
+        self.siguiente.disabled = (self.pagina_index == len(self.paginas) - 1)
+        self.ultima.disabled = (self.pagina_index == len(self.paginas) - 1)
+        self.pagina_actual.label = f"Página {self.pagina_index + 1}/{len(self.paginas)}"
+        
+        embed = crear_embed_levelboard(
+            self.paginas[self.pagina_index], 
+            self.pagina_index + 1, 
+            len(self.paginas),
+            self.total_usuarios,
+            self.total_niveles,
+            self.nivel_mas_alto
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_timeout(self):
+        if self.message:
+            try:
+                for item in self.children:
+                    item.disabled = True
+                await self.message.edit(view=self)
+            except:
+                pass
+# ============================
+# SISTEMA DE XP POR MENSAJES
+# ============================
+
+# Cooldown para XP (evitar spam)
+xp_cooldowns = {}
+
+@bot.event
+async def on_message(message):
+    # Ignorar mensajes del bot
+    if message.author.bot:
+        return
+    
+    # Ignorar DMs
+    if message.guild is None:
+        return
+    
+    # Verificar que sea en el servidor permitido
+    if message.guild.id != ALLOWED_GUILD_ID:
+        return
+    
+    uid = str(message.author.id)
+    now = int(time.time())
+    
+    # Cooldown de 60 segundos entre mensajes que dan XP
+    last_xp = xp_cooldowns.get(uid, 0)
+    if now - last_xp < 60:  # 1 minuto de cooldown
+        return
+    
+    # Generar XP (entre 10 y 20)
+    xp_gain = random.randint(10, 20)
+    
+    # Cargar niveles
+    levels_data = load_levels()
+    current_xp = levels_data.get(uid, {}).get("xp", 0)
+    new_xp = current_xp + xp_gain
+    
+    # Guardar
+    if uid not in levels_data:
+        levels_data[uid] = {}
+    levels_data[uid]["xp"] = new_xp
+    levels_data[uid]["nombre"] = message.author.display_name
+    save_levels(levels_data)
+    
+    # Actualizar cooldown
+    xp_cooldowns[uid] = now
+    
+    # Verificar si subió de nivel
+    old_level = level_from_xp(current_xp)
+    new_level = level_from_xp(new_xp)
+    
+    if new_level > old_level:
+        # Notificar subida de nivel
+        try:
+            embed = discord.Embed(
+                title="🎉 ¡SUBISTE DE NIVEL!",
+                description=f"¡Felicidades {message.author.mention}!\nAhora eres nivel **{new_level}**",
+                color=discord.Color.gold()
+            )
+            await message.channel.send(embed=embed)
+        except:
+            pass
+    
+    # Procesar comandos (importante para que otros comandos funcionen)
+    await bot.process_commands(message)
 # -------------------------
 # RUN
 # -------------------------
