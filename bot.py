@@ -100,25 +100,50 @@ def save_json(path, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
-# ========== FUNCIONES DE NIVELES ==========
+# ========== FUNCIONES DE NIVELES (FÓRMULA ARCANE) ==========
 
 def xp_required_for_level(level):
-    """XP necesaria para pasar de nivel (similar a Arcane)"""
-    # Fórmula: 5 * level^2 (Arcane style)
-    return 5 * (level ** 2)
+    """
+    XP necesaria para pasar del nivel (level) al nivel (level+1)
+    Fórmula Arcane: 5 × (level + 1)²
+    """
+    if level == 0:
+        return 5 * (1 ** 2)
+    return 5 * ((level + 1) ** 2)
+
+def total_xp_for_level(level):
+    """
+    XP total acumulada para alcanzar un nivel específico
+    """
+    if level <= 0:
+        return 0
+    total = 0
+    for lvl in range(1, level + 1):
+        total += xp_required_for_level(lvl - 1)
+    return total
 
 def level_from_xp(xp):
-    """Calcula el nivel a partir de XP"""
+    """
+    Calcula el nivel a partir de XP total acumulada
+    """
+    if xp <= 0:
+        return 0
     level = 0
-    while xp_required_for_level(level + 1) <= xp:
+    while total_xp_for_level(level + 1) <= xp:
         level += 1
     return level
 
 def xp_progress(level, xp):
-    """Retorna (xp_actual_en_nivel, xp_necesaria_para_siguiente)"""
-    xp_needed = xp_required_for_level(level + 1)
-    xp_in_current = xp - sum(xp_required_for_level(l) for l in range(1, level + 1))
-    return xp_in_current, xp_needed
+    """
+    Retorna (xp_actual_en_nivel, xp_necesaria_para_siguiente)
+    """
+    if level == 0:
+        xp_needed = xp_required_for_level(0)
+        return xp, xp_needed
+    else:
+        xp_needed = xp_required_for_level(level)
+        xp_in_current = xp - total_xp_for_level(level)
+        return xp_in_current, xp_needed
 
 def load_levels():
     return load_json(LEVELS_FILE, {})
@@ -147,7 +172,234 @@ def save_level_price(price):
     """Guarda el precio del nivel"""
     save_json(LEVEL_PRICE_FILE, {"price": price})
 
+def calcular_precio_nivel(dinero_total):
+    """
+    Calcula el precio del nivel según la fórmula:
+    Precio = k × √(Dinero total) donde k = 0.114
+    """
+    if dinero_total <= 0:
+        return 122
+    k = 0.114
+    precio = int(k * (dinero_total ** 0.5))
+    return max(50, min(precio, 5000))
 
+def update_level_price_auto():
+    """Actualiza el precio automáticamente según el dinero total"""
+    balances_data = load_json(BALANCES_FILE, {})
+    dinero_total = sum(balances_data.values())
+    nuevo_precio = calcular_precio_nivel(dinero_total)
+    precio_actual = load_level_price()
+    if nuevo_precio != precio_actual:
+        save_level_price(nuevo_precio)
+        print(f"💰 Precio de nivel actualizado: {precio_actual} → {nuevo_precio}")
+    return nuevo_precio
+
+
+# ========== DATOS PERSISTENTES ==========
+balances = load_json(BALANCES_FILE, {})
+shared_accounts = load_json(SHARED_FILE, {})
+PRECIO_NIVEL = load_level_price()
+
+
+def embed_card(title=None, description=None):
+    e = discord.Embed(
+        title=title,
+        description=description,
+        color=discord.Color.from_rgb(30, 30, 30)
+    )
+    e.set_thumbnail(url="https://cdn.discordapp.com/embed/avatars/0.png")
+    return e
+# ========== FUNCIONES DE NIVELES (FÓRMULA ARCANE) ==========
+
+def xp_required_for_level(level):
+    """
+    XP necesaria para pasar del nivel (level) al nivel (level+1)
+    Fórmula Arcane: 5 × (level + 1)²
+    """
+    if level == 0:
+        return 5 * (1 ** 2)  # Nivel 0 → 1: 5 XP
+    return 5 * ((level + 1) ** 2)
+
+def total_xp_for_level(level):
+    """
+    XP total acumulada para alcanzar un nivel específico
+    """
+    if level <= 0:
+        return 0
+    total = 0
+    for lvl in range(1, level + 1):
+        total += xp_required_for_level(lvl - 1)
+    return total
+
+def level_from_xp(xp):
+    """
+    Calcula el nivel a partir de XP total acumulada
+    """
+    if xp <= 0:
+        return 0
+    level = 0
+    while total_xp_for_level(level + 1) <= xp:
+        level += 1
+    return level
+
+def xp_progress(level, xp):
+    """
+    Retorna (xp_actual_en_nivel, xp_necesaria_para_siguiente)
+    """
+    if level == 0:
+        xp_needed = xp_required_for_level(0)
+        return xp, xp_needed
+    else:
+        xp_needed = xp_required_for_level(level)
+        xp_in_current = xp - total_xp_for_level(level)
+        return xp_in_current, xp_needed
+#----------------------------------------------------
+#----------actualizar el precio del nivel------------
+#----------------------------------------------------
+async def update_level_price_periodically():
+    """Actualiza el precio del nivel automáticamente cada hora"""
+    await bot.wait_until_ready()
+    
+    while not bot.is_closed():
+        try:
+            update_level_price_auto()
+        except Exception as e:
+            print(f"Error actualizando precio de nivel: {e}")
+        
+        await asyncio.sleep(3600)  # 1 hora
+# -------------------------
+# Bot subclass for setup_hook
+# -------------------------
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+
+class MyBot(commands.Bot):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    async def setup_hook(self):
+        # Start background tasks here
+        self.loop.create_task(update_crypto_prices())
+        self.loop.create_task(update_level_price_periodically())  # NUEVO
+
+# Create bot instance (pass application_id only if available)
+bot_kwargs = {
+    "command_prefix": "/",
+    "intents": intents,
+}
+if APPLICATION_ID:
+    bot_kwargs["application_id"] = APPLICATION_ID
+
+bot = MyBot(**bot_kwargs)
+tree = bot.tree
+# ============================
+# SISTEMA DE XP POR MENSAJES
+# ============================
+
+xp_cooldowns = {}
+
+@bot.event
+async def on_message(message):
+    # Ignorar mensajes del bot
+    if message.author.bot:
+        return
+    
+    # Ignorar DMs
+    if message.guild is None:
+        return
+    
+    # Verificar que sea en el servidor permitido
+    if message.guild.id != ALLOWED_GUILD_ID:
+        return
+    
+    uid = str(message.author.id)
+    now = int(time.time())
+    
+    # Cooldown de 60 segundos
+    last_xp = xp_cooldowns.get(uid, 0)
+    if now - last_xp < 60:
+        await bot.process_commands(message)
+        return
+    
+    # Generar XP (entre 8 y 15 XP por mensaje)
+    xp_gain = random.randint(8, 15)
+    
+    # Cargar niveles
+    levels_data = load_levels()
+    current_xp = levels_data.get(uid, {}).get("xp", 0)
+    new_xp = current_xp + xp_gain
+    
+    # Guardar
+    if uid not in levels_data:
+        levels_data[uid] = {}
+    levels_data[uid]["xp"] = new_xp
+    levels_data[uid]["nombre"] = message.author.display_name
+    save_levels(levels_data)
+    
+    # Actualizar cooldown
+    xp_cooldowns[uid] = now
+    
+    # Verificar si subió de nivel
+    old_level = level_from_xp(current_xp)
+    new_level = level_from_xp(new_xp)
+    
+    if new_level > old_level:
+        try:
+            embed = discord.Embed(
+                title="🎉 ¡SUBISTE DE NIVEL!",
+                description=f"{message.author.mention} ahora eres nivel **{new_level}**",
+                color=discord.Color.gold()
+            )
+            await message.channel.send(embed=embed)
+        except:
+            pass
+    
+    # Procesar comandos
+    await bot.process_commands(message)
+# ========== FUNCIONES DE PRECIO DE NIVEL ==========
+
+def calcular_precio_nivel(dinero_total):
+    """
+    Calcula el precio del nivel según la fórmula:
+    Precio = k × √(Dinero total)
+    donde k = 0.114 (ajustado para que con 4,807,220 dé 250)
+    """
+    if dinero_total <= 0:
+        return 122  # Precio mínimo por defecto
+    
+    k = 0.114
+    precio = int(k * (dinero_total ** 0.5))
+    
+    # Limitar entre 50 y 5000 para que no se descontrole
+    return max(50, min(precio, 5000))
+
+def load_level_price():
+    """Carga el precio actual del nivel del archivo"""
+    data = load_json(LEVEL_PRICE_FILE, {"price": 122})
+    return data.get("price", 122)
+
+def save_level_price(price):
+    """Guarda el precio del nivel en archivo"""
+    save_json(LEVEL_PRICE_FILE, {"price": price})
+
+def update_level_price_auto():
+    """Actualiza el precio automáticamente según el dinero total"""
+    # Cargar balances
+    balances_data = load_json(BALANCES_FILE, {})
+    dinero_total = sum(balances_data.values())
+    
+    # Calcular nuevo precio
+    nuevo_precio = calcular_precio_nivel(dinero_total)
+    
+    # Guardar si cambió
+    precio_actual = load_level_price()
+    if nuevo_precio != precio_actual:
+        save_level_price(nuevo_precio)
+        print(f"💰 Precio de nivel actualizado: {precio_actual} → {nuevo_precio} (Dinero total: {fmt(dinero_total)})")
+        return nuevo_precio
+    
+    return precio_actual
 # ========== DATOS PERSISTENTES ==========
 balances = load_json(BALANCES_FILE, {})
 shared_accounts = load_json(SHARED_FILE, {})
@@ -164,31 +416,6 @@ def embed_card(title=None, description=None):
     )
     e.set_thumbnail(url="https://cdn.discordapp.com/embed/avatars/0.png")
     return e
-# -------------------------
-# Bot subclass for setup_hook
-# -------------------------
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-
-class MyBot(commands.Bot):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    async def setup_hook(self):
-        # Start background tasks here
-        self.loop.create_task(update_crypto_prices())
-
-# Create bot instance (pass application_id only if available)
-bot_kwargs = {
-    "command_prefix": "/",
-    "intents": intents,
-}
-if APPLICATION_ID:
-    bot_kwargs["application_id"] = APPLICATION_ID
-
-bot = MyBot(**bot_kwargs)
-tree = bot.tree
 
 # -------------------------
 # Utilitarios concurrencia / format
@@ -282,7 +509,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("chat cuanto me dan del 1/10?" \
+    await interaction.followup.send("ya les dije q no manden porno por general, soy un bot y tengo que avisarles tambien" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -435,12 +662,15 @@ async def profile(interaction: discord.Interaction, usuario: Optional[discord.Us
     user_xp = levels_data.get(uid, {}).get("xp", 0)
     user_level = level_from_xp(user_xp)
     xp_actual, xp_necesaria = xp_progress(user_level, user_xp)
-    porcentaje_nivel = (xp_actual / xp_necesaria * 100) if xp_necesaria > 0 else 0
     
-    # Barra de progreso
-    barra = crear_barra_progreso(xp_actual, xp_necesaria, 12)
+    # Barra de progreso (simple)
+    if xp_necesaria > 0:
+        porcentaje = int((xp_actual / xp_necesaria) * 10)
+        barra = "🟩" * porcentaje + "⬜" * (10 - porcentaje)
+    else:
+        barra = "🟩" * 10
     
-    # Porcentaje de la plata total (para nivel)
+    # Porcentaje de la plata total
     balances_data = load_json(BALANCES_FILE, {})
     total_dinero = sum(balances_data.values())
     porcentaje_plata = (bal / total_dinero * 100) if total_dinero > 0 else 0
@@ -450,10 +680,17 @@ async def profile(interaction: discord.Interaction, usuario: Optional[discord.Us
     
     embed.add_field(name="💰 Balance", value=f"`{fmt(bal)}`", inline=True)
     embed.add_field(name="⭐ Nivel", value=f"`{user_level}`", inline=True)
-    embed.add_field(name="📊 Progreso", value=f"`{barra}` {xp_actual}/{xp_necesaria} XP ({porcentaje_nivel:.1f}%)", inline=False)
+    embed.add_field(name="📊 Progreso", value=f"`{barra}` {xp_actual}/{xp_necesaria} XP", inline=False)
     embed.add_field(name="📈 % de la economía total", value=f"`{porcentaje_plata:.2f}%`", inline=True)
     
-    # Si tiene cryptos, mostrarlas
+    # XP necesaria para próximo nivel
+    if user_level == 0:
+        xp_para_subir = xp_required_for_level(0)
+    else:
+        xp_para_subir = xp_required_for_level(user_level)
+    embed.add_field(name="🎯 XP para nivel siguiente", value=f"`{xp_para_subir - xp_actual}`", inline=True)
+    
+    # Si tiene cryptos
     cryptos_data = load_cryptos()
     holders = cryptos_data.get("holders", {})
     user_cryptos = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
@@ -469,7 +706,6 @@ async def profile(interaction: discord.Interaction, usuario: Optional[discord.Us
         embed.add_field(name="💎 Cryptos", value=cryptos_text, inline=False)
     
     await interaction.response.send_message(embed=embed)
-
 @tree.command(name="transfer", description="Transferir monedas a otro usuario")
 @app_commands.describe(usuario="Usuario destino", cantidad="Monto")
 async def transfer(interaction: discord.Interaction, usuario: discord.User, cantidad: int):
@@ -1158,6 +1394,17 @@ async def towers(interaction: discord.Interaction, cantidad: int):
 
     await interaction.response.send_message(embed=embed, view=view)
 #-------------------------supongo que cryptos-------------------------
+async def update_level_price_periodically():
+    """Actualiza el precio del nivel automáticamente cada hora"""
+    await bot.wait_until_ready()
+    
+    while not bot.is_closed():
+        try:
+            update_level_price_auto()
+        except Exception as e:
+            print(f"Error actualizando precio de nivel: {e}")
+        
+        await asyncio.sleep(3600)  # 1 hora
 # ------------ CRYPTOS ------------
 CRYPTO_FILE = os.path.join(DATA_DIR, "cryptos.json")
 
@@ -3021,9 +3268,9 @@ async def buy(interaction: discord.Interaction, item: str):
     )
     
     await interaction.response.send_message(embed=embed)
-    # ============================
-# /info - Información económica
-# ============================
+#------------------------------------------------------
+#-------------------------/info------------------------
+#------------------------------------------------------
 @tree.command(name="info", description="📊 Ver información económica del servidor")
 async def info(interaction: discord.Interaction):
     
@@ -3053,13 +3300,15 @@ async def info(interaction: discord.Interaction):
             total_niveles += level
             usuarios_con_nivel += 1
     
-    # Precio de nivel (calculado dinámicamente)
-    # Precio base = 1035 (como referencia, pero no se muestra en el leaderboard)
-    # Se guarda en archivo
-    level_price = load_level_price()
+    # Precio del nivel (actualizado automáticamente)
+    precio_actual = load_level_price()
+    precio_teorico = calcular_precio_nivel(total_monedas)
+    
+    # Calcular estadísticas de precios
+    venta = int(precio_actual * 0.70)  # 70% del precio
     
     embed = discord.Embed(
-        title="📊 Información Económica del Servidor",
+        title="📊 Información Económica",
         description="Estadísticas generales de la economía",
         color=discord.Color.blue()
     )
@@ -3083,20 +3332,29 @@ async def info(interaction: discord.Interaction):
     )
     
     embed.add_field(
-        name="💸 Precio de Nivel",
-        value=f"**Valor actual:** `{fmt(level_price)}` monedas\n*Se actualiza según la economía*",
+        name="💸 Precio del Nivel",
+        value=(
+            f"**Valor actual:** `{fmt(precio_actual)}` monedas\n"
+            f"**Valor de venta:** `{fmt(venta)}` monedas (70%)\n"
+            f"*Se actualiza automáticamente cada hora*"
+        ),
         inline=False
     )
     
-    # Gráfico simple del precio del nivel (si matplotlib está disponible)
+    embed.add_field(
+        name="📐 Fórmula",
+        value=f"`Precio = 0.114 × √({fmt(total_monedas)}) = {fmt(precio_actual)}`",
+        inline=False
+    )
+    
+    # Gráfico simple (opcional)
     if plt:
         try:
-            # Crear historial de precios
             PRICE_HISTORY_FILE = os.path.join(DATA_DIR, "price_history.json")
             price_data = load_json(PRICE_HISTORY_FILE, {"history": []})
             
             # Agregar precio actual
-            price_data["history"].append(level_price)
+            price_data["history"].append(precio_actual)
             if len(price_data["history"]) > 30:
                 price_data["history"] = price_data["history"][-30:]
             save_json(PRICE_HISTORY_FILE, price_data)
@@ -3106,7 +3364,7 @@ async def info(interaction: discord.Interaction):
                 fig, ax = plt.subplots(figsize=(8, 3))
                 ax.plot(price_data["history"], linewidth=2, color='gold')
                 ax.set_title("📈 Historial de Precio de Nivel")
-                ax.set_xlabel("Actualizaciones")
+                ax.set_xlabel("Actualizaciones (cada hora)")
                 ax.set_ylabel("Precio")
                 ax.fill_between(range(len(price_data["history"])), price_data["history"], alpha=0.3, color='gold')
                 
@@ -3124,13 +3382,11 @@ async def info(interaction: discord.Interaction):
             pass
     
     await interaction.followup.send(embed=embed)
-
 # ============================
 # /editlevelprice - Cambiar precio base del nivel
 # ============================
-@tree.command(name="editlevelprice", description="💰 (Admin) Cambiar el precio base del nivel")
-@app_commands.describe(nuevo_precio="Nuevo precio base del nivel")
-async def editlevelprice(interaction: discord.Interaction, nuevo_precio: int):
+@tree.command(name="updatelevelprice", description="👑 (Admin) Forzar actualización del precio del nivel")
+async def updatelevelprice(interaction: discord.Interaction):
     
     if not await ensure_guild_or_reply(interaction):
         return
@@ -3138,23 +3394,28 @@ async def editlevelprice(interaction: discord.Interaction, nuevo_precio: int):
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
     
-    if nuevo_precio < 1:
-        return await interaction.response.send_message("❌ El precio debe ser mayor a 0.", ephemeral=True)
+    await interaction.response.defer()
     
-    global PRECIO_NIVEL
-    PRECIO_NIVEL = nuevo_precio
-    save_level_price(nuevo_precio)
+    # Actualizar precio automáticamente
+    nuevo_precio = update_level_price_auto()
+    
+    # Obtener dinero total
+    balances_data = load_json(BALANCES_FILE, {})
+    dinero_total = sum(balances_data.values())
     
     embed = discord.Embed(
         title="💰 Precio de Nivel Actualizado",
-        description=f"El precio base del nivel ahora es **{fmt(nuevo_precio)}**",
+        description=f"El precio del nivel se ha actualizado automáticamente",
         color=discord.Color.green()
     )
-    embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
     
-    await interaction.response.send_message(embed=embed)
-
-
+    embed.add_field(name="💰 Dinero total", value=fmt(dinero_total), inline=True)
+    embed.add_field(name="📐 √(Dinero total)", value=f"{dinero_total ** 0.5:.0f}", inline=True)
+    embed.add_field(name="🔄 Nuevo precio", value=f"`{fmt(nuevo_precio)}`", inline=True)
+    embed.add_field(name="💸 Valor de venta", value=f"`{fmt(int(nuevo_precio * 0.70))}` (70%)", inline=True)
+    embed.set_footer(text="Se actualiza automáticamente cada hora")
+    
+    await interaction.followup.send(embed=embed)
 # ============================
 # LEADERBOARD DE MONEDAS (SOLO PLATA)
 # ============================
@@ -3480,9 +3741,9 @@ class LeaderboardCryptoSimpleView(discord.ui.View):
                 await self.message.edit(view=self)
             except:
                 pass
-            # ============================
-# /levelboard - Leaderboard de niveles
-# ============================
+#----------------------------------------------------
+#-----------------/levelboard------------------------
+#----------------------------------------------------
 @tree.command(name="levelboard", description="📈 Ver ranking de niveles")
 async def levelboard(interaction: discord.Interaction):
     
@@ -3496,7 +3757,6 @@ async def levelboard(interaction: discord.Interaction):
     if not levels_data:
         return await interaction.followup.send("😔 No hay datos de niveles todavía.", ephemeral=True)
     
-    # Crear lista de usuarios con niveles
     usuarios_niveles = []
     for uid, data in levels_data.items():
         xp = data.get("xp", 0)
@@ -3522,9 +3782,9 @@ async def levelboard(interaction: discord.Interaction):
     
     usuarios_niveles.sort(key=lambda x: x[1], reverse=True)
     
-    # Calcular estadísticas
     total_niveles = sum(level for _, level, _, _ in usuarios_niveles)
     nivel_mas_alto = usuarios_niveles[0][1]
+    promedio_nivel = total_niveles // len(usuarios_niveles) if usuarios_niveles else 0
     
     items_por_pagina = 15
     paginas = []
@@ -3532,14 +3792,14 @@ async def levelboard(interaction: discord.Interaction):
         paginas.append(usuarios_niveles[i:i + items_por_pagina])
     
     if len(paginas) == 1:
-        embed = crear_embed_levelboard(paginas[0], 1, 1, len(usuarios_niveles), total_niveles, nivel_mas_alto)
+        embed = crear_embed_levelboard(paginas[0], 1, 1, len(usuarios_niveles), total_niveles, nivel_mas_alto, promedio_nivel)
         await interaction.followup.send(embed=embed)
     else:
-        view = LevelboardView(paginas, 0, len(usuarios_niveles), total_niveles, nivel_mas_alto)
-        embed = crear_embed_levelboard(paginas[0], 1, len(paginas), len(usuarios_niveles), total_niveles, nivel_mas_alto)
+        view = LevelboardView(paginas, 0, len(usuarios_niveles), total_niveles, nivel_mas_alto, promedio_nivel)
+        embed = crear_embed_levelboard(paginas[0], 1, len(paginas), len(usuarios_niveles), total_niveles, nivel_mas_alto, promedio_nivel)
         await interaction.followup.send(embed=embed, view=view)
 
-def crear_embed_levelboard(usuarios, pagina_actual, total_paginas, total_usuarios, total_niveles, nivel_mas_alto):
+def crear_embed_levelboard(usuarios, pagina_actual, total_paginas, total_usuarios, total_niveles, nivel_mas_alto, promedio_nivel):
     descripcion = ""
     posicion_inicio = (pagina_actual - 1) * 15 + 1
     
@@ -3555,12 +3815,7 @@ def crear_embed_levelboard(usuarios, pagina_actual, total_paginas, total_usuario
         else:
             medalla = "🔹 "
         
-        # XP actual en este nivel
-        xp_actual, xp_necesaria = xp_progress(level, xp)
-        barra = crear_barra_progreso(xp_actual, xp_necesaria, 10)
-        
         descripcion += f"{medalla} **#{posicion}** {nombre} • Nivel `{level}`\n"
-        descripcion += f"`{barra}` {xp_actual}/{xp_necesaria} XP\n\n"
     
     embed = discord.Embed(
         title="📈 Leaderboard - Niveles",
@@ -3568,31 +3823,26 @@ def crear_embed_levelboard(usuarios, pagina_actual, total_paginas, total_usuario
         color=discord.Color.purple()
     )
     
-    embed.add_field(
-        name="📊 Estadísticas",
-        value=f"👥 **Usuarios activos:** {total_usuarios}\n⭐ **Nivel más alto:** {nivel_mas_alto}\n📚 **Total de niveles:** {total_niveles}",
-        inline=False
+    stats = (
+        f"👥 **Usuarios con nivel:** {total_usuarios}\n"
+        f"⭐ **Nivel más alto:** {nivel_mas_alto}\n"
+        f"📊 **Promedio de nivel:** {promedio_nivel}\n"
+        f"📚 **Total de niveles sumados:** {total_niveles}"
     )
+    
+    embed.add_field(name="📊 Estadísticas", value=stats, inline=False)
     embed.set_footer(text=f"Página {pagina_actual}/{total_paginas} • Mostrando {len(usuarios)} usuarios")
     return embed
 
-def crear_barra_progreso(actual, total, longitud=10):
-    """Crea una barra de progreso visual"""
-    if total <= 0:
-        return "⬜" * longitud
-    porcentaje = actual / total
-    llenos = int(porcentaje * longitud)
-    vacios = longitud - llenos
-    return "🟩" * llenos + "⬜" * vacios
-
 class LevelboardView(discord.ui.View):
-    def __init__(self, paginas, pagina_index, total_usuarios, total_niveles, nivel_mas_alto):
+    def __init__(self, paginas, pagina_index, total_usuarios, total_niveles, nivel_mas_alto, promedio_nivel):
         super().__init__(timeout=60)
         self.paginas = paginas
         self.pagina_index = pagina_index
         self.total_usuarios = total_usuarios
         self.total_niveles = total_niveles
         self.nivel_mas_alto = nivel_mas_alto
+        self.promedio_nivel = promedio_nivel
         self.message = None
         
         self.primera.disabled = (pagina_index == 0)
@@ -3638,7 +3888,8 @@ class LevelboardView(discord.ui.View):
             len(self.paginas),
             self.total_usuarios,
             self.total_niveles,
-            self.nivel_mas_alto
+            self.nivel_mas_alto,
+            self.promedio_nivel
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -3651,7 +3902,7 @@ class LevelboardView(discord.ui.View):
             except:
                 pass
 # ============================
-# SISTEMA DE XP POR MENSAJES
+# SISTEMA DE XP POR MENSAJES (CORREGIDO)
 # ============================
 
 # Cooldown para XP (evitar spam)
@@ -3676,18 +3927,19 @@ async def on_message(message):
     
     # Cooldown de 60 segundos entre mensajes que dan XP
     last_xp = xp_cooldowns.get(uid, 0)
-    if now - last_xp < 60:  # 1 minuto de cooldown
+    if now - last_xp < 60:
+        await bot.process_commands(message)
         return
     
-    # Generar XP (entre 10 y 20)
-    xp_gain = random.randint(10, 20)
+    # Generar XP (entre 8 y 15 XP por mensaje)
+    xp_gain = random.randint(8, 15)
     
     # Cargar niveles
     levels_data = load_levels()
     current_xp = levels_data.get(uid, {}).get("xp", 0)
     new_xp = current_xp + xp_gain
     
-    # Guardar
+    # Guardar nombre del usuario
     if uid not in levels_data:
         levels_data[uid] = {}
     levels_data[uid]["xp"] = new_xp
@@ -3706,7 +3958,7 @@ async def on_message(message):
         try:
             embed = discord.Embed(
                 title="🎉 ¡SUBISTE DE NIVEL!",
-                description=f"¡Felicidades {message.author.mention}!\nAhora eres nivel **{new_level}**",
+                description=f"{message.author.mention} ahora eres nivel **{new_level}**",
                 color=discord.Color.gold()
             )
             await message.channel.send(embed=embed)
