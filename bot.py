@@ -293,6 +293,28 @@ if APPLICATION_ID:
 
 bot = MyBot(**bot_kwargs)
 tree = bot.tree
+class MyBot(commands.Bot):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    async def setup_hook(self):
+        # Start background tasks here
+        self.loop.create_task(update_crypto_prices())
+        self.loop.create_task(update_level_price_periodically())
+        self.loop.create_task(keep_alive_ping())  # NUEVO
+
+
+async def keep_alive_ping():
+    """Mantiene el bot activo haciendo pings cada 5 minutos"""
+    await bot.wait_until_ready()
+    
+    while not bot.is_closed():
+        try:
+            # Ping a sí mismo para mantener actividad
+            await asyncio.sleep(300)  # 5 minutos
+            print("🟢 Keep-alive ping - bot activo")
+        except Exception as e:
+            print(f"Error en keep-alive: {e}")
 # ============================
 # SISTEMA DE XP POR MENSAJES
 # ============================
@@ -509,7 +531,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("así gana maga" \
+    await interaction.followup.send("reviví" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -1804,11 +1826,18 @@ async def message(interaction: discord.Interaction, mensaje: str, canal: Optiona
     # Si no se especifica canal, usar el actual
     destino = canal or interaction.channel
     
-    # Responder al admin que se envió el mensaje
-    await interaction.response.send_message(f"✅ Mensaje enviado a {destino.mention}", ephemeral=True)
+    # Crear embed con el mensaje
+    embed = discord.Embed(
+        description=mensaje,
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
     
-    # Enviar el mensaje
-    await destino.send(mensaje)
+    # Enviar el embed al canal destino
+    await destino.send(embed=embed)
+    
+    # Confirmación para el admin (ephemeral para no spamear)
+    await interaction.response.send_message(f"✅ Mensaje enviado a {destino.mention}", ephemeral=True)
 # ============================
 # SISTEMA DE SORTEOS
 # ============================
