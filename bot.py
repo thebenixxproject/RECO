@@ -509,7 +509,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("ya les dije q no manden porno por general, soy un bot y tengo que avisarles tambien" \
+    await interaction.followup.send("así gana maga" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -1138,23 +1138,8 @@ async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
         if not interaction.response.is_done():
             await interaction.response.send_message("❌ Error inesperado.", ephemeral=True)
 # ============================
-# /towers (MODIFICADO)
+# /towers (MODIFICADO - con "a" y sin fotos)
 # ============================
-
-# IMAGENES DE TORRE SEGUN PISO
-TOWER_IMAGES = [
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",  # piso 0
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",  # piso 1
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi",
-    "https://imgur.com/gallery/keep-digging-1bl6i#AcBA0Pi"
-]
-
 
 class TowersView(discord.ui.View):
 
@@ -1195,10 +1180,6 @@ class TowersView(discord.ui.View):
         tower += "🟥\n"
         return tower
 
-    def get_image(self):
-        index = min(self.floor, len(TOWER_IMAGES) - 1)
-        return TOWER_IMAGES[index]
-
     @discord.ui.button(label="Subir piso", style=discord.ButtonStyle.primary)
     async def subir(self, interaction: discord.Interaction, button: discord.ui.Button):
 
@@ -1212,15 +1193,11 @@ class TowersView(discord.ui.View):
         self.floor += 1
         self.multiplier += 0.5
 
-        # ===== PROBABILIDAD LIGERAMENTE AJUSTADA =====
-        # riesgo base original: 0.20 + (self.floor * 0.06)
-        # NUEVO: 0.19 + (self.floor * 0.058)  - Reducción MUY sutil
+        # Probabilidad de perder
         lose_chance = 0.19 + (self.floor * 0.058)
-        
-        # Asegurar que no pase de 0.95
         lose_chance = min(lose_chance, 0.95)
 
-        # ventaja secreta (usa lucky_roll que ya tiene tu bonus)
+        # ventaja secreta (usa lucky_roll)
         perder = lucky_roll(self.uid, lose_chance)
 
         if perder:
@@ -1240,8 +1217,6 @@ class TowersView(discord.ui.View):
                 inline=False
             )
 
-            embed.set_image(url=self.get_image())
-
             return await interaction.response.edit_message(embed=embed, view=self)
 
         # Actualizar embed después de subir
@@ -1259,7 +1234,7 @@ class TowersView(discord.ui.View):
             inline=False
         )
 
-        # Mostrar probabilidad de perder en el próximo piso (opcional, podés sacarlo)
+        # Mostrar probabilidad de perder en el próximo piso
         prox_perder = min(0.19 + ((self.floor + 1) * 0.058), 0.95) * 100
         embed.add_field(
             name="⚠️ Riesgo próximo piso",
@@ -1272,8 +1247,6 @@ class TowersView(discord.ui.View):
             value=f"{fmt(int(self.bet * (self.multiplier + 0.5)))} si subís y cashouteás",
             inline=True
         )
-
-        embed.set_image(url=self.get_image())
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -1315,32 +1288,45 @@ class TowersView(discord.ui.View):
             inline=False
         )
 
-        embed.set_image(url=self.get_image())
-
         await interaction.response.edit_message(embed=embed, view=self)
 
 
 @tree.command(name="towers", description="Subí una torre y retirate antes de explotar")
-@app_commands.describe(cantidad="Cantidad a apostar")
-async def towers(interaction: discord.Interaction, cantidad: int):
+@app_commands.describe(cantidad="Cantidad a apostar (o 'a' para apostar todo)")
+async def towers(interaction: discord.Interaction, cantidad: str):
 
     if not await ensure_guild_or_reply(interaction):
         return
 
-    if cantidad <= 0:
-        return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
-
     uid = str(interaction.user.id)
 
+    # Procesar apuesta (soporta "a" para apostar todo)
+    if cantidad.lower() == "a":
+        # Apostar todo el saldo
+        async with balances_lock:
+            bet_val = balances.get(uid, 0)
+            if bet_val <= 0:
+                return await interaction.response.send_message("❌ No tenés saldo para apostar.", ephemeral=True)
+            if bet_val < MIN_BET:
+                return await interaction.response.send_message(f"❌ La apuesta mínima es {MIN_BET}. Tenés {fmt(bet_val)}.", ephemeral=True)
+    else:
+        try:
+            bet_val = int(cantidad)
+            if bet_val <= 0:
+                return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+        except ValueError:
+            return await interaction.response.send_message("❌ Usá un número o 'a' para apostar todo.", ephemeral=True)
+
+    # Verificar saldo
     async with balances_lock:
         saldo = balances.get(uid, 0)
-        if saldo < cantidad:
-            return await interaction.response.send_message("❌ No tenés saldo suficiente.", ephemeral=True)
+        if saldo < bet_val:
+            return await interaction.response.send_message(f"❌ No tenés saldo suficiente. Tenés {fmt(saldo)}.", ephemeral=True)
 
-        balances[uid] -= cantidad
+        balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
 
-    # Crear embed inicial
+    # Crear embed inicial (sin imagen)
     embed = discord.Embed(
         title="🏰 Towers",
         description=(
@@ -1354,7 +1340,7 @@ async def towers(interaction: discord.Interaction, cantidad: int):
 
     # Mostrar saldo y apuesta en el autor
     embed.set_author(
-        name=f"💰 {fmt(saldo - cantidad)} | 🎲 {fmt(cantidad)}",
+        name=f"💰 {fmt(saldo - bet_val)} | 🎲 {fmt(bet_val)}",
         icon_url="https://cdn.discordapp.com/emojis/1000674856255176836.png"
     )
 
@@ -1362,10 +1348,10 @@ async def towers(interaction: discord.Interaction, cantidad: int):
     embed.add_field(
         name="💵 Posibles ganancias",
         value=(
-            f"Piso 1: x1.5 → {fmt(int(cantidad * 1.5))}\n"
-            f"Piso 2: x2.0 → {fmt(int(cantidad * 2.0))}\n"
-            f"Piso 3: x2.5 → {fmt(int(cantidad * 2.5))}\n"
-            f"Piso 4: x3.0 → {fmt(int(cantidad * 3.0))}"
+            f"Piso 1: x1.5 → {fmt(int(bet_val * 1.5))}\n"
+            f"Piso 2: x2.0 → {fmt(int(bet_val * 2.0))}\n"
+            f"Piso 3: x2.5 → {fmt(int(bet_val * 2.5))}\n"
+            f"Piso 4: x3.0 → {fmt(int(bet_val * 3.0))}"
         ),
         inline=True
     )
@@ -1387,10 +1373,9 @@ async def towers(interaction: discord.Interaction, cantidad: int):
         inline=False
     )
 
-    embed.set_image(url=TOWER_IMAGES[0])
     embed.set_footer(text="Usá los botones para jugar • Tenés 2 minutos por partida")
 
-    view = TowersView(uid, cantidad, saldo)
+    view = TowersView(uid, bet_val, saldo)
 
     await interaction.response.send_message(embed=embed, view=view)
 #-------------------------supongo que cryptos-------------------------
@@ -1802,6 +1787,28 @@ async def setpricecrypto(interaction: discord.Interaction, coin: str, price: flo
     embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
 
     await interaction.response.send_message(embed=embed)
+# ============================
+# /message - El bot dice lo que quieras
+# ============================
+@tree.command(name="message", description="🤖 Hacer que el bot diga un mensaje (solo admins)")
+@app_commands.describe(
+    mensaje="El mensaje que quieras que diga el bot",
+    canal="Canal donde enviar el mensaje (opcional, por defecto el canal actual)"
+)
+async def message(interaction: discord.Interaction, mensaje: str, canal: Optional[discord.TextChannel] = None):
+    
+    # Verificar que sea admin
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
+    
+    # Si no se especifica canal, usar el actual
+    destino = canal or interaction.channel
+    
+    # Responder al admin que se envió el mensaje
+    await interaction.response.send_message(f"✅ Mensaje enviado a {destino.mention}", ephemeral=True)
+    
+    # Enviar el mensaje
+    await destino.send(mensaje)
 # ============================
 # SISTEMA DE SORTEOS
 # ============================
