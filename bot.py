@@ -527,7 +527,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("RECO_1.51" \
+    await interaction.followup.send("RECO_1.53" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -1078,7 +1078,7 @@ async def update_level_price_periodically():
         
         await asyncio.sleep(3600)  # 1 hora
 # ============================
-# SISTEMA DE CRYPTOS - COMPLETO (con funciones)
+# SISTEMA DE CRYPTOS - COMPLETO CORREGIDO
 # ============================
 
 # ------------ CRYPTOS ------------
@@ -1108,7 +1108,6 @@ async def update_crypto_prices():
         for sym in ("RSC", "CTC", "MMC"):
             price = cryptos[sym]["price"]
             
-            # Movimiento aleatorio entre -8% y +8%
             change = random.uniform(-0.08, 0.08)
             new_price = max(1, price + price * change)
             new_price = round(new_price, 2)
@@ -1116,16 +1115,15 @@ async def update_crypto_prices():
             cryptos[sym]["price"] = new_price
             cryptos[sym]["history"].append(new_price)
             
-            # Guardamos solo 288 puntos (24h de datos cada 5 min)
             if len(cryptos[sym]["history"]) > 288:
                 cryptos[sym]["history"].pop(0)
         
         save_cryptos(cryptos)
-        await asyncio.sleep(300)  # 5 minutos
+        await asyncio.sleep(300)
 
 
 # ============================
-# /cryptostatus - Ver estado de cryptos
+# /cryptostatus
 # ============================
 @tree.command(name="cryptostatus", description="📊 Ver estado de las cryptos (con gráficos)")
 @app_commands.describe(coin="Criptomoneda específica (RSC, CTC, MMC) - opcional")
@@ -1134,7 +1132,6 @@ async def cryptostatus(interaction: discord.Interaction, coin: Optional[str] = N
     if not await ensure_guild_or_reply(interaction):
         return
     
-    # Si se especifica una crypto específica
     if coin and coin.upper() in ("RSC", "CTC", "MMC"):
         sym = coin.upper()
         
@@ -1143,7 +1140,6 @@ async def cryptostatus(interaction: discord.Interaction, coin: Optional[str] = N
             
             plt.style.use("dark_background")
             fig, ax = plt.subplots(figsize=(8, 3))
-            
             ax.plot(prices, linewidth=2, color='gold')
             ax.set_title(f"{sym} – Movimiento de precio")
             ax.set_xlabel("Tiempo (5m por punto)")
@@ -1158,7 +1154,6 @@ async def cryptostatus(interaction: discord.Interaction, coin: Optional[str] = N
             plt.close()
             
             file = discord.File(buf, filename=f"{sym}.png")
-            
             embed = discord.Embed(
                 title=f"{sym} — {cryptos[sym]['price']:,} monedas",
                 description="📊 Movimiento de precio (24h)",
@@ -1170,11 +1165,9 @@ async def cryptostatus(interaction: discord.Interaction, coin: Optional[str] = N
             await interaction.response.send_message(f"{sym}: {cryptos[sym]['price']} monedas")
         return
     
-    # Si no se especifica crypto, mostrar gráfico de las 3 juntas
     if plt and all(len(cryptos[s]["history"]) > 0 for s in ("RSC", "CTC", "MMC")):
         plt.style.use("dark_background")
         fig, ax = plt.subplots(figsize=(10, 5))
-        
         colors = {"RSC": "#e74c3c", "CTC": "#3498db", "MMC": "#2ecc71"}
         
         for sym in ("RSC", "CTC", "MMC"):
@@ -1194,41 +1187,25 @@ async def cryptostatus(interaction: discord.Interaction, coin: Optional[str] = N
         plt.close()
         
         file = discord.File(buf, filename="all_cryptos.png")
-        
         embed = discord.Embed(
             title="💰 Estado del Mercado Crypto",
             description="Movimiento de precios de las últimas 24h",
             color=discord.Color.blue()
         )
-        
         for sym in ("RSC", "CTC", "MMC"):
-            embed.add_field(
-                name=sym,
-                value=f"{cryptos[sym]['price']:,} monedas",
-                inline=True
-            )
-        
+            embed.add_field(name=sym, value=f"{cryptos[sym]['price']:,} monedas", inline=True)
         embed.set_image(url="attachment://all_cryptos.png")
         await interaction.response.send_message(embed=embed, file=file)
     else:
-        # Fallback si no hay matplotlib
-        desc = "\n".join([
-            f"**{s}** → {cryptos[s]['price']:,} monedas"
-            for s in ("RSC", "CTC", "MMC")
-        ])
-        await interaction.response.send_message(
-            embed=discord.Embed(title="💰 Criptos", description=desc, color=discord.Color.blue())
-        )
+        desc = "\n".join([f"**{s}** → {cryptos[s]['price']:,} monedas" for s in ("RSC", "CTC", "MMC")])
+        await interaction.response.send_message(embed=discord.Embed(title="💰 Criptos", description=desc, color=discord.Color.blue()))
 
 
 # ============================
-# /buycrypto - Comprar cryptos
+# /buycrypto
 # ============================
 @tree.command(name="buycrypto", description="🟢 Comprar cryptos (monedas → crypto)")
-@app_commands.describe(
-    coin="Criptomoneda a comprar (RSC, CTC, MMC)",
-    cantidad="Cantidad en monedas a gastar, o 'a' para gastar todo"
-)
+@app_commands.describe(coin="Criptomoneda a comprar (RSC, CTC, MMC)", cantidad="Cantidad en monedas, o 'a' para gastar todo")
 async def buycrypto(interaction: discord.Interaction, coin: str, cantidad: str):
     
     if not await ensure_guild_or_reply(interaction):
@@ -1237,52 +1214,43 @@ async def buycrypto(interaction: discord.Interaction, coin: str, cantidad: str):
     uid = str(interaction.user.id)
     sym = coin.upper()
     
-    # Validar crypto
     if sym not in ("RSC", "CTC", "MMC"):
         return await interaction.response.send_message("❌ Cripto inválida. Usá RSC, CTC o MMC.", ephemeral=True)
     
-    # Procesar cantidad (soporta "a" para gastar todo)
     if cantidad.lower() == "a":
         async with balances_lock:
             gasto = balances.get(uid, 0)
             if gasto <= 0:
-                return await interaction.response.send_message("❌ No tenés monedas para gastar.", ephemeral=True)
+                return await interaction.response.send_message("❌ No tenés monedas.", ephemeral=True)
     else:
         try:
             gasto = float(cantidad)
             if gasto <= 0:
                 return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
         except ValueError:
-            return await interaction.response.send_message("❌ Usá un número o 'a' para gastar todo.", ephemeral=True)
+            return await interaction.response.send_message("❌ Usá un número o 'a'.", ephemeral=True)
     
-    # Obtener precio actual
     price = cryptos[sym]["price"]
     
-    # Verificar saldo
     async with balances_lock:
         saldo = balances.get(uid, 0)
         if saldo < gasto:
-            return await interaction.response.send_message(f"❌ Necesitás {fmt(gasto)} monedas. Tenés {fmt(saldo)}.", ephemeral=True)
-        
-        # Descontar monedas
+            return await interaction.response.send_message(f"❌ Necesitás {fmt(gasto)}. Tenés {fmt(saldo)}.", ephemeral=True)
         balances[uid] -= gasto
         save_json(BALANCES_FILE, balances)
     
-    # Calcular cantidad de crypto que recibe
     cantidad_crypto = gasto / price
     
-    # Guardar en holdings
     holders = cryptos["holders"]
     if uid not in holders:
         holders[uid] = {"RSC": 0, "CTC": 0, "MMC": 0}
     holders[uid][sym] += cantidad_crypto
     save_cryptos(cryptos)
     
-    # ACTUALIZAR PRECIO POR COMPRA (sube según cantidad comprada)
-    impacto_compra = (gasto / 50000) * 0.05  # Cada 50k monedas = +5% extra al precio
-    nuevo_precio_compra = round(cryptos[sym]["price"] * (1 + impacto_compra), 2)
-    cryptos[sym]["price"] = nuevo_precio_compra
-    cryptos[sym]["history"].append(nuevo_precio_compra)
+    impacto_compra = (gasto / 50000) * 0.05
+    nuevo_precio = round(cryptos[sym]["price"] * (1 + impacto_compra), 2)
+    cryptos[sym]["price"] = nuevo_precio
+    cryptos[sym]["history"].append(nuevo_precio)
     save_cryptos(cryptos)
     
     embed = discord.Embed(
@@ -1290,23 +1258,19 @@ async def buycrypto(interaction: discord.Interaction, coin: str, cantidad: str):
         description=f"Compraste **{cantidad_crypto:.4f} {sym}** por **{fmt(gasto)}** monedas",
         color=discord.Color.green()
     )
-    embed.add_field(name="💰 Precio unitario", value=f"{fmt(price)} monedas", inline=True)
-    embed.add_field(name="📈 Impacto en mercado", value=f"+{impacto_compra*100:.2f}% por la compra", inline=True)
-    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio_compra)} monedas", inline=True)
-    embed.add_field(name="💎 Total en cartera", value=f"{holders[uid][sym]:.4f} {sym}", inline=False)
-    embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
-    
+    embed.add_field(name="💰 Precio", value=f"{fmt(price)}", inline=True)
+    embed.add_field(name="📈 Impacto", value=f"+{impacto_compra*100:.2f}%", inline=True)
+    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio)}", inline=True)
+    embed.add_field(name="💎 Cartera", value=f"{holders[uid][sym]:.4f} {sym}", inline=False)
+    embed.set_footer(text=interaction.user.display_name)
     await interaction.response.send_message(embed=embed)
 
 
 # ============================
-# /sellcrypto - Vender cryptos
+# /sellcrypto
 # ============================
 @tree.command(name="sellcrypto", description="🔴 Vender cryptos (crypto → monedas)")
-@app_commands.describe(
-    coin="Criptomoneda a vender (RSC, CTC, MMC)",
-    cantidad="Cantidad de crypto a vender, o 'a' para vender todo"
-)
+@app_commands.describe(coin="Criptomoneda a vender (RSC, CTC, MMC)", cantidad="Cantidad de crypto, o 'a' para vender todo")
 async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str):
     
     if not await ensure_guild_or_reply(interaction):
@@ -1315,11 +1279,9 @@ async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str)
     uid = str(interaction.user.id)
     sym = coin.upper()
     
-    # Validar crypto
     if sym not in ("RSC", "CTC", "MMC"):
         return await interaction.response.send_message("❌ Cripto inválida. Usá RSC, CTC o MMC.", ephemeral=True)
     
-    # Obtener holdings
     holders = cryptos["holders"]
     user_holdings = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
     cantidad_actual = user_holdings.get(sym, 0)
@@ -1327,7 +1289,6 @@ async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str)
     if cantidad_actual == 0:
         return await interaction.response.send_message(f"❌ No tenés {sym}.", ephemeral=True)
     
-    # Procesar cantidad (soporta "a" para vender todo)
     if cantidad.lower() == "a":
         cantidad_vender = cantidad_actual
     else:
@@ -1336,34 +1297,27 @@ async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str)
             if cantidad_vender <= 0:
                 return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
         except ValueError:
-            return await interaction.response.send_message("❌ Usá un número o 'a' para vender todo.", ephemeral=True)
+            return await interaction.response.send_message("❌ Usá un número o 'a'.", ephemeral=True)
     
-    # Verificar que tenga suficiente
     if cantidad_vender > cantidad_actual:
-        return await interaction.response.send_message(f"❌ Tenés {cantidad_actual:.4f} {sym}. No podés vender {cantidad_vender:.4f}.", ephemeral=True)
+        return await interaction.response.send_message(f"❌ Tenés {cantidad_actual:.4f}. No podés vender {cantidad_vender:.4f}.", ephemeral=True)
     
-    # Obtener precio actual
     price = cryptos[sym]["price"]
-    
-    # Calcular ganancia
     ganancia = cantidad_vender * price
     
-    # Vender
     user_holdings[sym] -= cantidad_vender
     if user_holdings[sym] < 0.001:
         user_holdings[sym] = 0
     holders[uid] = user_holdings
     save_cryptos(cryptos)
     
-    # Dar monedas
     await safe_add(uid, ganancia)
     
-    # ACTUALIZAR PRECIO POR VENTA (baja según cantidad vendida)
-    impacto_venta = (ganancia / 50000) * 0.04  # Cada 50k monedas = -4% extra al precio
-    nuevo_precio_venta = round(cryptos[sym]["price"] * (1 - impacto_venta), 2)
-    nuevo_precio_venta = max(nuevo_precio_venta, 1)  # Precio mínimo 1
-    cryptos[sym]["price"] = nuevo_precio_venta
-    cryptos[sym]["history"].append(nuevo_precio_venta)
+    impacto_venta = (ganancia / 50000) * 0.04
+    nuevo_precio = round(cryptos[sym]["price"] * (1 - impacto_venta), 2)
+    nuevo_precio = max(nuevo_precio, 1)
+    cryptos[sym]["price"] = nuevo_precio
+    cryptos[sym]["history"].append(nuevo_precio)
     save_cryptos(cryptos)
     
     embed = discord.Embed(
@@ -1371,29 +1325,27 @@ async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str)
         description=f"Vendiste **{cantidad_vender:.4f} {sym}** por **{fmt(ganancia)}** monedas",
         color=discord.Color.red()
     )
-    embed.add_field(name="💰 Precio unitario", value=f"{fmt(price)} monedas", inline=True)
-    embed.add_field(name="📉 Impacto en mercado", value=f"-{impacto_venta*100:.2f}% por la venta", inline=True)
-    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio_venta)} monedas", inline=True)
-    embed.add_field(name="💎 Restante en cartera", value=f"{user_holdings[sym]:.4f} {sym}", inline=False)
-    embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
-    
+    embed.add_field(name="💰 Precio", value=f"{fmt(price)}", inline=True)
+    embed.add_field(name="📉 Impacto", value=f"-{impacto_venta*100:.2f}%", inline=True)
+    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio)}", inline=True)
+    embed.add_field(name="💎 Restante", value=f"{user_holdings[sym]:.4f} {sym}", inline=False)
+    embed.set_footer(text=interaction.user.display_name)
     await interaction.response.send_message(embed=embed)
 
 
 # ============================
-# /boughtcrypto - Ver cartera de cryptos
+# /boughtcrypto
 # ============================
 @tree.command(name="boughtcrypto", description="💼 Ver tu cartera de cryptos o la de otro usuario")
-@app_commands.describe(usuario="Usuario para ver su cartera (opcional, solo admins)")
+@app_commands.describe(usuario="Usuario (opcional, solo admins)")
 async def boughtcrypto(interaction: discord.Interaction, usuario: Optional[discord.User] = None):
     
     if not await ensure_guild_or_reply(interaction):
         return
     
-    # Determinar de quién mostrar la cartera
     if usuario:
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Solo administradores pueden ver la cartera de otros usuarios.", ephemeral=True)
+            return await interaction.response.send_message("❌ Solo admins pueden ver carteras ajenas.", ephemeral=True)
         uid = str(usuario.id)
         titulo = f"💼 Cartera de {usuario.display_name}"
     else:
@@ -1420,154 +1372,94 @@ async def boughtcrypto(interaction: discord.Interaction, usuario: Optional[disco
     if len(lines) > 1:
         lines.append(f"\n**💰 Valor total:** ≈ {fmt(total_valor)} monedas")
     
-    embed = discord.Embed(
-        title=titulo,
-        description="\n".join(lines),
-        color=discord.Color.gold()
-    )
-    
-    if usuario:
-        embed.set_footer(text=f"Consultado por {interaction.user.display_name}")
-    else:
-        embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
-    
+    embed = discord.Embed(title=titulo, description="\n".join(lines), color=discord.Color.gold())
+    embed.set_footer(text=interaction.user.display_name)
     await interaction.response.send_message(embed=embed)
-    # ============================
-    # ACCION INVALIDA
-    # ============================
-    await interaction.response.send_message(
-        "❌ Acción inválida.",
-        ephemeral=True
-    )
 
-#--------------killcrypto-------------------
-@tree.command(name="killcrypto", description="⚙️ Administrar cryptos de un usuario (add, remove, set)")
-@app_commands.describe(
-    user="Usuario al que se le modificarán las cryptos",
-    coin="Criptomoneda a modificar",
-    action="Qué querés hacer",
-    amount="Cantidad a aplicar"
-)
-@app_commands.choices(
-    action=[
-        app_commands.Choice(name="Agregar", value="add"),
-        app_commands.Choice(name="Remover", value="remove"),
-        app_commands.Choice(name="Setear valor exacto", value="set")
-    ]
-)
+
+# ============================
+# /killcrypto (Admin)
+# ============================
+@tree.command(name="killcrypto", description="⚙️ (Admin) Administrar cryptos de un usuario")
+@app_commands.describe(user="Usuario", coin="Criptomoneda", action="add | remove | set", amount="Cantidad")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Agregar", value="add"),
+    app_commands.Choice(name="Remover", value="remove"),
+    app_commands.Choice(name="Setear", value="set")
+])
 async def killcrypto(interaction: discord.Interaction, user: discord.User, coin: str, action: app_commands.Choice[str], amount: float):
     
-    # Permisos
     if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("❌ No tenés permisos para usar este comando.", ephemeral=True)
-
+        return await interaction.response.send_message("❌ No tenés permisos.", ephemeral=True)
+    
     global cryptos
-    cryptos = load_json(CRYPTO_FILE, {})
-
-    # Validar crypto existente
-    if coin not in cryptos:
-        return await interaction.response.send_message(f"❌ La coin **{coin}** no existe.", ephemeral=True)
-
-    # Convertir ID a string
+    sym = coin.upper()
+    
+    if sym not in cryptos:
+        return await interaction.response.send_message(f"❌ La crypto **{sym}** no existe.", ephemeral=True)
+    
     uid = str(user.id)
-
-    # Crear cartera si no existe
+    
     if "holders" not in cryptos:
         cryptos["holders"] = {}
-
     if uid not in cryptos["holders"]:
         cryptos["holders"][uid] = {"RSC": 0, "CTC": 0, "MMC": 0}
-
-    # Acción
-    current = cryptos["holders"][uid].get(coin, 0)
-
+    
+    current = cryptos["holders"][uid].get(sym, 0)
+    
     if action.value == "add":
         new_amount = current + amount
-        msg_action = f"➕ Agregado **{amount} {coin}** a **{user.display_name}**."
-
+        msg = f"➕ Agregado **{amount} {sym}** a {user.display_name}"
     elif action.value == "remove":
         new_amount = max(0, current - amount)
-        msg_action = f"➖ Removido **{amount} {coin}** a **{user.display_name}**."
-
-    elif action.value == "set":
+        msg = f"➖ Removido **{amount} {sym}** de {user.display_name}"
+    else:
         new_amount = amount
-        msg_action = f"🛠️ Seteado **{coin} = {amount}** para **{user.display_name}**."
-
-    # Guardar
-    cryptos["holders"][uid][coin] = new_amount
-    save_json(CRYPTO_FILE, cryptos)
-
-    # Confirmación
-    embed = discord.Embed(
-        title="⚙️ Gestión de Cryptos",
-        color=discord.Color.red(),
-        description=msg_action
-    )
+        msg = f"🛠️ Seteado **{sym} = {amount}** para {user.display_name}"
+    
+    cryptos["holders"][uid][sym] = new_amount
+    save_cryptos(cryptos)
+    
+    embed = discord.Embed(title="⚙️ Gestión de Cryptos", color=discord.Color.red(), description=msg)
     embed.add_field(name="Usuario", value=user.display_name)
-    embed.add_field(name="Coin", value=coin)
+    embed.add_field(name="Coin", value=sym)
     embed.add_field(name="Nuevo Balance", value=str(new_amount))
-    embed.set_footer(text="RECO • Crypto Admin")
-
     await interaction.response.send_message(embed=embed)
-#---------------setprice crypto---------------------
-@tree.command(name="setpricecrypto", description="(Admin) Establecer el precio de una crypto")
-@app_commands.describe(coin="Criptomoneda (RSC/CTC/MMC)", price="Nuevo precio (ej: 123.45)")
-async def setpricecrypto(interaction: discord.Interaction, coin: str, price: float):
 
+
+# ============================
+# /setpricecrypto (Admin)
+# ============================
+@tree.command(name="setpricecrypto", description="(Admin) Establecer el precio de una crypto")
+@app_commands.describe(coin="RSC, CTC, MMC", price="Nuevo precio")
+async def setpricecrypto(interaction: discord.Interaction, coin: str, price: float):
+    
     if not await ensure_guild_or_reply(interaction):
         return
-
+    
     if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message(
-            "🚫 Solo administradores pueden usar este comando.",
-            ephemeral=True
-        )
-
-    # validar precio
+        return await interaction.response.send_message("🚫 Solo admins.", ephemeral=True)
+    
     if price <= 0:
-        return await interaction.response.send_message(
-            "❌ Precio inválido. Debe ser mayor a 0.",
-            ephemeral=True
-        )
-
-    global cryptos  # ← ESTO ES LO IMPORTANTE
-
-    cryptos = load_json(CRYPTO_FILE, {})
-
+        return await interaction.response.send_message("❌ Precio debe ser mayor a 0.", ephemeral=True)
+    
+    global cryptos
     sym = coin.upper()
-
+    
     if sym not in cryptos:
-        return await interaction.response.send_message(
-            f"❌ La crypto **{sym}** no existe.",
-            ephemeral=True
-        )
-
-    # actualizar precio
+        return await interaction.response.send_message(f"❌ La crypto **{sym}** no existe.", ephemeral=True)
+    
     cryptos[sym]["price"] = round(price, 2)
-
-    # historial
-    hist = cryptos[sym].setdefault("history", [])
-    hist.append(round(price, 2))
-
-    MAX_HISTORY = 288
-    cryptos[sym]["history"] = hist[-MAX_HISTORY:]
-
-    save_json(CRYPTO_FILE, cryptos)
-
-    embed = discord.Embed(
-        title="💹 Precio actualizado",
-        description=f"Se actualizó el precio de **{sym}**",
-        color=discord.Color.green()
-    )
-
-    embed.add_field(
-        name="Nuevo precio",
-        value=f"{cryptos[sym]['price']:,}",
-        inline=True
-    )
-
+    cryptos[sym]["history"].append(round(price, 2))
+    
+    if len(cryptos[sym]["history"]) > 288:
+        cryptos[sym]["history"] = cryptos[sym]["history"][-288:]
+    
+    save_cryptos(cryptos)
+    
+    embed = discord.Embed(title="💹 Precio actualizado", description=f"Precio de **{sym}**", color=discord.Color.green())
+    embed.add_field(name="Nuevo precio", value=f"{cryptos[sym]['price']:,}")
     embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
-
     await interaction.response.send_message(embed=embed)
 # ============================
 # /message - El bot dice lo que quieras
