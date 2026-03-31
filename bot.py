@@ -77,13 +77,9 @@ XP_CONFIG_FILE = os.path.join(DATA_DIR, "xp_config.json")
 LEVEL_PRICE_FILE = os.path.join(DATA_DIR, "level_price.json")
 PRICE_HISTORY_FILE = os.path.join(DATA_DIR, "price_history.json")
 
-# Archivos para sorteos y otros
-SORTEOS_FILE = os.path.join(DATA_DIR, "sorteos.json")
+# Archivos para otros
 GIFTS_FILE = os.path.join(DATA_DIR, "gifts.json")
 BUFFS_FILE = os.path.join(DATA_DIR, "buffs.json")
-INVEST_COOLDOWN_FILE = os.path.join(DATA_DIR, "invest_cooldowns.json")
-INVEST_COMPANIES_FILE = os.path.join(DATA_DIR, "invest_companies.json")
-POST_COOLDOWN_FILE = os.path.join(DATA_DIR, "post_cooldowns.json")
 
 
 def load_json(path, default=None):
@@ -531,7 +527,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("reviví" \
+    await interaction.followup.send("RECO_1.51" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -828,337 +824,6 @@ async def work(interaction: discord.Interaction):
         save_json(BALANCES_FILE, balances)
     last_work[uid] = now.isoformat()
     await interaction.response.send_message(f"🧰 Ganaste **{fmt(amount)}** monedas por trabajar.")
-#--------------------- HELPERS INVEST ----------------------
-INVEST_COOLDOWN_FILE = os.path.join(DATA_DIR, "invest_cooldowns.json")
-INVEST_COMPANIES_FILE = os.path.join(DATA_DIR, "invest_companies.json")  # Nuevo archivo para empresas personalizadas
-
-def load_invest_cooldowns():
-    return load_json(INVEST_COOLDOWN_FILE, {})
-
-def save_invest_cooldowns(data):
-    save_json(INVEST_COOLDOWN_FILE, data)
-
-def load_invest_companies():
-    """Carga las empresas personalizadas creadas por usuarios"""
-    data = load_json(INVEST_COMPANIES_FILE, {})
-    if "companies" not in data:
-        data["companies"] = {}
-    if "creators" not in data:
-        data["creators"] = {}
-    return data
-
-def save_invest_companies(data):
-    save_json(INVEST_COMPANIES_FILE, data)
-
-def invest_time_left(uid):
-    data = load_invest_cooldowns()
-    now = int(time.time())
-    last = data.get(uid, 0)
-    cooldown = 3 * 60 * 60  # 3 horas
-    remaining = (last + cooldown) - now
-    return max(0, remaining)
-
-INVEST_COOLDOWN = 60 * 60 * 3  # 3 horas en segundos
-
-#---------------------- /invest create ----------------------
-@tree.command(name="invest_create", description="Creá tu propia empresa para invertir 🏢")
-@app_commands.describe(
-    nombre="Nombre de tu empresa (ej: Tesla, MercadoLibre, etc)",
-    descripcion="Una breve descripción de la empresa (opcional)"
-)
-async def invest_create(interaction: discord.Interaction, nombre: str, descripcion: str = "Sin descripción"):
-    
-    if not await ensure_guild_or_reply(interaction):
-        return
-    
-    uid = str(interaction.user.id)
-    
-    # Validar nombre
-    if len(nombre) < 2 or len(nombre) > 30:
-        return await interaction.response.send_message("❌ El nombre debe tener entre 2 y 30 caracteres.", ephemeral=True)
-    
-    # Validar caracteres (solo letras, números y espacios)
-    if not all(c.isalnum() or c.isspace() for c in nombre):
-        return await interaction.response.send_message("❌ El nombre solo puede contener letras, números y espacios.", ephemeral=True)
-    
-    # Normalizar nombre para comparación
-    nombre_key = nombre.lower().strip()
-    
-    # Cargar empresas existentes
-    companies_data = load_invest_companies()
-    
-    # Verificar si ya existe una empresa con ese nombre
-    if nombre_key in companies_data["companies"]:
-        return await interaction.response.send_message("❌ Ya existe una empresa con ese nombre.", ephemeral=True)
-    
-    # Verificar límite de empresas por usuario (máx 3)
-    user_companies = [k for k, v in companies_data["creators"].items() if v == uid]
-    if len(user_companies) >= 3:
-        return await interaction.response.send_message("❌ Ya creaste el máximo de 3 empresas.", ephemeral=True)
-    
-    # Crear la empresa
-    companies_data["companies"][nombre_key] = {
-        "nombre": nombre,  # Nombre original con mayúsculas
-        "descripcion": descripcion,
-        "creador": uid,
-        "fecha_creacion": int(time.time()),
-        "inversiones_totales": 0,
-        "veces_invertida": 0
-    }
-    companies_data["creators"][nombre_key] = uid
-    
-    save_invest_companies(companies_data)
-    
-    embed = discord.Embed(
-        title="🏢 Empresa Creada",
-        description=f"**{nombre}** ha sido registrada en el mercado de inversiones.",
-        color=0x3498db
-    )
-    embed.add_field(name="📝 Descripción", value=descripcion, inline=False)
-    embed.add_field(name="👑 Creador", value=interaction.user.mention, inline=True)
-    embed.add_field(name="📊 Estado", value="✅ Lista para invertir", inline=True)
-    embed.set_footer(text="Usá /invest para invertir en tu empresa")
-    
-    await interaction.response.send_message(embed=embed)
-
-#---------------------- /invest_list ----------------------
-@tree.command(name="invest_list", description="Ver todas las empresas disponibles para invertir")
-async def invest_list(interaction: discord.Interaction):
-    
-    if not await ensure_guild_or_reply(interaction):
-        return
-    
-    # Empresas predeterminadas
-    empresas_base = ["Apple", "RESONA", "PHub", "Benigoat"]
-    
-    # Empresas personalizadas
-    companies_data = load_invest_companies()
-    empresas_custom = list(companies_data["companies"].values())
-    
-    if not empresas_base and not empresas_custom:
-        return await interaction.response.send_message("📭 No hay empresas disponibles para invertir.", ephemeral=True)
-    
-    embed = discord.Embed(
-        title="🏢 Empresas Disponibles",
-        description="Estas son las empresas en las que podés invertir:",
-        color=0x2ecc71
-    )
-    
-    # Empresas base
-    if empresas_base:
-        base_list = "\n".join([f"• **{emp}** (Base)" for emp in empresas_base])
-        embed.add_field(name="📌 Empresas Oficiales", value=base_list, inline=False)
-    
-    # Empresas personalizadas (mostrar máximo 10)
-    if empresas_custom:
-        custom_list = []
-        for emp in empresas_custom[:10]:
-            creator = await bot.fetch_user(int(emp["creador"])) if str(emp["creador"]).isdigit() else None
-            creator_name = creator.display_name if creator else "Usuario desconocido"
-            custom_list.append(f"• **{emp['nombre']}** - {emp['descripcion'][:50]}... (por {creator_name})")
-        
-        if custom_list:
-            embed.add_field(
-                name="🌟 Empresas de Usuarios", 
-                value="\n".join(custom_list) + ("\n*y más...*" if len(empresas_custom) > 10 else ""),
-                inline=False
-            )
-    
-    embed.add_field(
-        name="💡 ¿Querés crear tu propia empresa?",
-        value="Usá `/invest_create nombre descripción` para crear tu empresa y que otros inviertan en ella.",
-        inline=False
-    )
-    embed.set_footer(text="RECO • Inversiones")
-    
-    await interaction.response.send_message(embed=embed)
-
-#---------------------- /invest (COMPLETO Y CORREGIDO) ----------------------
-@tree.command(name="invest", description="Invertí en una empresa")
-@app_commands.describe(
-    empresa="Apple | RESONA | PHub | Benigoat | o tu empresa personalizada",
-    cantidad="Cantidad a invertir"
-)
-async def invest(interaction: discord.Interaction, empresa: str, cantidad: int):
-    try:
-        # Verificación manual
-        if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
-            await interaction.response.send_message("❌ Comando no disponible.", ephemeral=True)
-            return
-
-        uid = str(interaction.user.id)
-
-        # Validar cantidad
-        if cantidad <= 0:
-            await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
-            return
-
-        # ---- Verificar que la empresa existe ----
-        empresas_validas = ["apple", "resona", "phub", "benigoat"]
-        empresa_lower = empresa.lower().strip()
-        
-        # Cargar empresas personalizadas
-        companies_data = load_invest_companies()
-        empresas_custom = {k: v for k, v in companies_data["companies"].items()}
-        
-        # Verificar si es empresa base o personalizada
-        if empresa_lower not in empresas_validas and empresa_lower not in empresas_custom:
-            # Sugerir empresas similares
-            todas_empresas = empresas_validas + list(empresas_custom.keys())
-            sugerencias = [e for e in todas_empresas if empresa_lower in e or e in empresa_lower][:3]
-            
-            msg = f"❌ Empresa '{empresa}' no encontrada."
-            if sugerencias:
-                msg += f"\n¿Quizás quisiste decir: {', '.join(sugerencias)}?"
-            
-            await interaction.response.send_message(msg, ephemeral=True)
-            return
-
-        # Cooldown
-        now = int(time.time())
-        cooldowns = load_invest_cooldowns()
-        last = cooldowns.get(uid, 0)
-        if now - last < INVEST_COOLDOWN:
-            remaining = INVEST_COOLDOWN - (now - last)
-            horas = remaining // 3600
-            minutos = (remaining % 3600) // 60
-            await interaction.response.send_message(
-                f"⏳ Volvé en **{horas}h {minutos}m**.",
-                ephemeral=True
-            )
-            return
-
-        # Saldo
-        async with balances_lock:
-            if balances.get(uid, 0) < cantidad:
-                await interaction.response.send_message(
-                    f"❌ Saldo insuficiente. Necesitás {fmt(cantidad)} y tenés {fmt(balances.get(uid, 0))}.",
-                    ephemeral=True
-                )
-                return
-            balances[uid] -= cantidad
-            save_json(BALANCES_FILE, balances)
-
-        # Guardar cooldown
-        cooldowns[uid] = now
-        save_invest_cooldowns(cooldowns)
-
-        # ---- Registrar inversión en empresa personalizada ----
-        if empresa_lower in empresas_custom:
-            empresas_custom[empresa_lower]["inversiones_totales"] += cantidad
-            empresas_custom[empresa_lower]["veces_invertida"] += 1
-            save_invest_companies(companies_data)
-
-        # =========================
-        #    VENTAJA PARA IBENIXX (INVISIBLE)
-        # =========================
-        if uid == LUCKY_USER_ID:
-            # 40% menos probabilidad de perder
-            perder = lucky_roll(uid, 0.45)  # Normal es 0.65, para vos 0.45
-        else:
-            perder = lucky_roll(uid, 0.65)  # Probabilidad normal para otros
-
-        # =========================
-        #    PERDER / GANAR
-        # =========================
-        if perder:
-            embed = discord.Embed(
-                title=f"📉 Inversión en {empresa}",
-                description=f"❌ El mercado colapsó.\nPerdiste **{fmt(cantidad)}** monedas.",
-                color=0xe74c3c
-            )
-            
-            # Bonus para empresas personalizadas
-            if empresa_lower in empresas_custom:
-                embed.set_footer(text=f"Empresa de {empresas_custom[empresa_lower]['creador']}")
-            
-            await interaction.response.send_message(embed=embed)
-            return
-
-        # =========================
-        #    GANANCIA
-        # =========================
-        roll = random.random()
-
-        # Ajustar probabilidades según tipo de empresa
-        if empresa_lower in empresas_custom:
-            # Empresas personalizadas: un poco más riesgosas pero más reward
-            if roll < 0.60:  # 60% baja
-                profit_percent = random.randint(5, 25)
-            elif roll < 0.90:  # 30% media
-                profit_percent = random.randint(25, 70)
-            else:  # 10% alta
-                if random.random() < 0.3:
-                    profit_percent = random.randint(70, 120)
-                else:
-                    profit_percent = random.randint(70, 100)
-        else:
-            # Empresas base (probabilidades originales)
-            if roll < 0.70:
-                profit_percent = random.randint(5, 20)
-            elif roll < 0.94:
-                profit_percent = random.randint(20, 60)
-            else:
-                if random.random() < 0.25:
-                    profit_percent = 99
-                else:
-                    profit_percent = random.randint(60, 90)
-
-        # ---- VENTAJA PARA IBENIXX: Mejores ganancias (INVISIBLE) ----
-        if uid == LUCKY_USER_ID:
-            profit_percent = int(profit_percent * 1.2)  # +20% en todas las ganancias
-            profit_percent = min(profit_percent, 150)   # Cap máximo 150%
-
-        ganancia = int(cantidad * (profit_percent / 100))
-        total = cantidad + ganancia
-
-        # Aplicar ganancia
-        await safe_add(uid, total)
-
-        # ---- Embed de éxito ----
-        embed = discord.Embed(
-            title=f"📈 Inversión en {empresa}",
-            description=(
-                f"✅ **¡Inversión exitosa!**\n\n"
-                f"📊 **Profit:** +{profit_percent}%\n"
-                f"💰 **Recibiste:** {fmt(total)} monedas\n"
-                f"📈 **Ganancia neta:** +{fmt(ganancia)}"
-            ),
-            color=0x2ecc71
-        )
-
-        # ---- Estadísticas adicionales ----
-        if empresa_lower in empresas_custom:
-            creador_id = empresas_custom[empresa_lower]["creador"]
-            try:
-                # Intentar obtener el usuario creador
-                creador = await bot.fetch_user(int(creador_id))
-                embed.add_field(
-                    name="👑 Creada por",
-                    value=creador.mention,
-                    inline=True
-                )
-            except:
-                embed.add_field(
-                    name="👑 Creada por",
-                    value=f"Usuario {creador_id}",
-                    inline=True
-                )
-            
-            embed.add_field(
-                name="📊 Total invertido",
-                value=f"{fmt(empresas_custom[empresa_lower]['inversiones_totales'])}",
-                inline=True
-            )
-
-        await interaction.response.send_message(embed=embed)
-
-    except Exception as e:
-        print(f"ERROR en /invest: {e}")
-        import traceback
-        traceback.print_exc()
-        if not interaction.response.is_done():
-            await interaction.response.send_message("❌ Error inesperado.", ephemeral=True)
 # ============================
 # /towers (MODIFICADO - con "a" y sin fotos)
 # ============================
@@ -1400,7 +1065,7 @@ async def towers(interaction: discord.Interaction, cantidad: str):
     view = TowersView(uid, bet_val, saldo)
 
     await interaction.response.send_message(embed=embed, view=view)
-#-------------------------supongo que cryptos-------------------------
+#-------------------------actualizar el precio del nivel update level price-------------------------
 async def update_level_price_periodically():
     """Actualiza el precio del nivel automáticamente cada hora"""
     await bot.wait_until_ready()
@@ -1412,6 +1077,10 @@ async def update_level_price_periodically():
             print(f"Error actualizando precio de nivel: {e}")
         
         await asyncio.sleep(3600)  # 1 hora
+# ============================
+# SISTEMA DE CRYPTOS - COMPLETO (con funciones)
+# ============================
+
 # ------------ CRYPTOS ------------
 CRYPTO_FILE = os.path.join(DATA_DIR, "cryptos.json")
 
@@ -1431,247 +1100,338 @@ def save_cryptos(data):
     save_json(CRYPTO_FILE, data)
 
 cryptos = load_cryptos()
+
 async def update_crypto_prices():
     await bot.wait_until_ready()
-
+    
     while not bot.is_closed():
         for sym in ("RSC", "CTC", "MMC"):
             price = cryptos[sym]["price"]
-
-            # Movimiento aleatorio entre -08% y +08%
+            
+            # Movimiento aleatorio entre -8% y +8%
             change = random.uniform(-0.08, 0.08)
             new_price = max(1, price + price * change)
             new_price = round(new_price, 2)
-
+            
             cryptos[sym]["price"] = new_price
             cryptos[sym]["history"].append(new_price)
-
+            
             # Guardamos solo 288 puntos (24h de datos cada 5 min)
             if len(cryptos[sym]["history"]) > 288:
                 cryptos[sym]["history"].pop(0)
-
+        
         save_cryptos(cryptos)
-
         await asyncio.sleep(300)  # 5 minutos
-@tree.command(name="crypto", description="Estado / comprar / vender cryptos")
-@app_commands.describe(
-    action="status | buy | sell | bought",
-    coin="RSC | CTC | MMC",
-    quantity="Cantidad para buy/sell",
-    usuario="Usuario para ver su cartera (solo en action=bought)"
-)
-async def crypto(interaction: discord.Interaction, action: str, coin: str = None, quantity: float = None, usuario: Optional[discord.User] = None):
 
+
+# ============================
+# /cryptostatus - Ver estado de cryptos
+# ============================
+@tree.command(name="cryptostatus", description="📊 Ver estado de las cryptos (con gráficos)")
+@app_commands.describe(coin="Criptomoneda específica (RSC, CTC, MMC) - opcional")
+async def cryptostatus(interaction: discord.Interaction, coin: Optional[str] = None):
+    
     if not await ensure_guild_or_reply(interaction):
         return
-
-    action = action.lower()
-
-    # ============================
-    # STATUS
-    # ============================
-    if action == "status":
-
-        if coin and coin.upper() in ("RSC", "CTC", "MMC"):
-            sym = coin.upper()
-
-            if plt:
-                prices = cryptos[sym]["history"]
-
-                plt.style.use("dark_background")
-                fig, ax = plt.subplots(figsize=(8, 3))
-
-                ax.plot(prices, linewidth=2)
-                ax.set_title(f"{sym} – Movimiento de precio")
-                ax.set_xlabel("Tiempo (5m por punto)")
-                ax.set_ylabel("Precio")
-
-                buf = io.BytesIO()
-                plt.tight_layout()
-                fig.savefig(buf, format="png", dpi=220)
-                buf.seek(0)
-                plt.close()
-
-                file = discord.File(buf, filename=f"{sym}.png")
-
-                embed = discord.Embed(
-                    title=f"{sym} — {cryptos[sym]['price']:,} monedas",
-                    description="📊 Movimiento de precio (24h)"
-                )
-
-                embed.set_image(url=f"attachment://{sym}.png")
-
-                await interaction.response.send_message(embed=embed, file=file)
-
-            else:
-                await interaction.response.send_message(f"{sym}: {cryptos[sym]['price']} monedas")
-
-            return
-
+    
+    # Si se especifica una crypto específica
+    if coin and coin.upper() in ("RSC", "CTC", "MMC"):
+        sym = coin.upper()
+        
+        if plt and len(cryptos[sym]["history"]) > 1:
+            prices = cryptos[sym]["history"]
+            
+            plt.style.use("dark_background")
+            fig, ax = plt.subplots(figsize=(8, 3))
+            
+            ax.plot(prices, linewidth=2, color='gold')
+            ax.set_title(f"{sym} – Movimiento de precio")
+            ax.set_xlabel("Tiempo (5m por punto)")
+            ax.set_ylabel("Precio")
+            ax.fill_between(range(len(prices)), prices, alpha=0.3, color='gold')
+            ax.grid(True, alpha=0.3)
+            
+            buf = io.BytesIO()
+            plt.tight_layout()
+            fig.savefig(buf, format="png", dpi=220)
+            buf.seek(0)
+            plt.close()
+            
+            file = discord.File(buf, filename=f"{sym}.png")
+            
+            embed = discord.Embed(
+                title=f"{sym} — {cryptos[sym]['price']:,} monedas",
+                description="📊 Movimiento de precio (24h)",
+                color=discord.Color.blue()
+            )
+            embed.set_image(url=f"attachment://{sym}.png")
+            await interaction.response.send_message(embed=embed, file=file)
+        else:
+            await interaction.response.send_message(f"{sym}: {cryptos[sym]['price']} monedas")
+        return
+    
+    # Si no se especifica crypto, mostrar gráfico de las 3 juntas
+    if plt and all(len(cryptos[s]["history"]) > 0 for s in ("RSC", "CTC", "MMC")):
+        plt.style.use("dark_background")
+        fig, ax = plt.subplots(figsize=(10, 5))
+        
+        colors = {"RSC": "#e74c3c", "CTC": "#3498db", "MMC": "#2ecc71"}
+        
+        for sym in ("RSC", "CTC", "MMC"):
+            prices = cryptos[sym]["history"]
+            ax.plot(prices, linewidth=2, color=colors[sym], label=sym)
+        
+        ax.set_title("📊 Movimiento de precios - Todas las cryptos (24h)")
+        ax.set_xlabel("Tiempo (5m por punto)")
+        ax.set_ylabel("Precio")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        buf = io.BytesIO()
+        plt.tight_layout()
+        fig.savefig(buf, format="png", dpi=220)
+        buf.seek(0)
+        plt.close()
+        
+        file = discord.File(buf, filename="all_cryptos.png")
+        
+        embed = discord.Embed(
+            title="💰 Estado del Mercado Crypto",
+            description="Movimiento de precios de las últimas 24h",
+            color=discord.Color.blue()
+        )
+        
+        for sym in ("RSC", "CTC", "MMC"):
+            embed.add_field(
+                name=sym,
+                value=f"{cryptos[sym]['price']:,} monedas",
+                inline=True
+            )
+        
+        embed.set_image(url="attachment://all_cryptos.png")
+        await interaction.response.send_message(embed=embed, file=file)
+    else:
+        # Fallback si no hay matplotlib
         desc = "\n".join([
             f"**{s}** → {cryptos[s]['price']:,} monedas"
             for s in ("RSC", "CTC", "MMC")
         ])
-
         await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Criptos",
-                description=desc
-            )
+            embed=discord.Embed(title="💰 Criptos", description=desc, color=discord.Color.blue())
         )
+
+
+# ============================
+# /buycrypto - Comprar cryptos
+# ============================
+@tree.command(name="buycrypto", description="🟢 Comprar cryptos (monedas → crypto)")
+@app_commands.describe(
+    coin="Criptomoneda a comprar (RSC, CTC, MMC)",
+    cantidad="Cantidad en monedas a gastar, o 'a' para gastar todo"
+)
+async def buycrypto(interaction: discord.Interaction, coin: str, cantidad: str):
+    
+    if not await ensure_guild_or_reply(interaction):
         return
-
-
-    # ============================
-    # BUY
-    # ============================
-    if action == "buy":
-
-        uid = str(interaction.user.id)
-
-        if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
-            await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
-            return
-
-        if quantity is None or quantity <= 0:
-            await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
-            return
-
-        sym = coin.upper()
-        price = cryptos[sym]["price"]
-        cost = round(price * quantity, 2)
-
+    
+    uid = str(interaction.user.id)
+    sym = coin.upper()
+    
+    # Validar crypto
+    if sym not in ("RSC", "CTC", "MMC"):
+        return await interaction.response.send_message("❌ Cripto inválida. Usá RSC, CTC o MMC.", ephemeral=True)
+    
+    # Procesar cantidad (soporta "a" para gastar todo)
+    if cantidad.lower() == "a":
         async with balances_lock:
-
-            saldo = balances.get(uid, 0)
-
-            if saldo < cost:
-                await interaction.response.send_message(
-                    "❌ No tenés saldo suficiente.",
-                    ephemeral=True
-                )
-                return
-
-            balances[uid] -= cost
-            save_json(BALANCES_FILE, balances)
-
-        holders = cryptos["holders"]
-
-        if uid not in holders:
-            holders[uid] = {"RSC": 0, "CTC": 0, "MMC": 0}
-
-        holders[uid][sym] += quantity
-
-        save_cryptos(cryptos)
-
-        await interaction.response.send_message(
-            f"🟩 Compraste **{quantity:.4f} {sym}** por **{fmt(cost)}** monedas."
-        )
-        return
-
-
-    # ============================
-    # SELL
-    # ============================
-    if action == "sell":
-
-        if coin is None or coin.upper() not in ("RSC", "CTC", "MMC"):
-            await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
-            return
-
-        if quantity is None or quantity <= 0:
-            await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
-            return
-
-        uid = str(interaction.user.id)
-        sym = coin.upper()
-
-        holdings = cryptos["holders"].get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
-
-        if holdings[sym] < quantity:
-            await interaction.response.send_message(
-                "❌ No tenés suficiente para vender.",
-                ephemeral=True
-            )
-            return
-
-        price = cryptos[sym]["price"]
-        gain = round(price * quantity, 2)
-
-        holdings[sym] -= quantity
-        cryptos["holders"][uid] = holdings
-
-        save_cryptos(cryptos)
-
-        await safe_add(uid, gain)
-
-        await interaction.response.send_message(
-            f"🟥 Vendiste **{quantity:.4f} {sym}** y recibiste **{fmt(gain)}** monedas."
-        )
-        return
-
-
-    # ============================
-    # BOUGHT (PORTAFOLIO) - CON OPCIÓN USER
-    # ============================
-    if action == "bought":
-
-        # Determinar de quién mostrar la cartera
-        if usuario:
-            # Si se especificó un usuario, solo admins pueden verlo
-            if not interaction.user.guild_permissions.administrator:
-                await interaction.response.send_message(
-                    "❌ Solo los administradores pueden ver la cartera de otros usuarios.",
-                    ephemeral=True
-                )
-                return
-            uid = str(usuario.id)
-            titulo = f"💼 Cartera de {usuario.display_name}"
-        else:
-            uid = str(interaction.user.id)
-            titulo = "💼 Tu cartera"
-
-        holders = cryptos["holders"]
-        u = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
-
-        lines = []
-        total_valor = 0
-
-        for s in ("RSC", "CTC", "MMC"):
-            amt = u.get(s, 0)
-            if amt > 0:
-                valor = round(amt * cryptos[s]["price"], 2)
-                total_valor += valor
-                lines.append(
-                    f"**{s}** → {amt:.4f} (≈ {fmt(valor)} monedas)"
-                )
-
-        if not lines:
-            if usuario:
-                msg = f"❌ {usuario.display_name} no tiene cryptos."
-            else:
-                msg = "❌ No tenés cryptos."
-            
-            await interaction.response.send_message(msg, ephemeral=True)
-            return
-
-        # Agregar valor total si hay más de una crypto
-        if len(lines) > 1:
-            lines.append(f"\n**💰 Valor total:** ≈ {fmt(total_valor)} monedas")
-
-        embed = discord.Embed(
-            title=titulo,
-            description="\n".join(lines),
-            color=discord.Color.gold()
-        )
+            gasto = balances.get(uid, 0)
+            if gasto <= 0:
+                return await interaction.response.send_message("❌ No tenés monedas para gastar.", ephemeral=True)
+    else:
+        try:
+            gasto = float(cantidad)
+            if gasto <= 0:
+                return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+        except ValueError:
+            return await interaction.response.send_message("❌ Usá un número o 'a' para gastar todo.", ephemeral=True)
+    
+    # Obtener precio actual
+    price = cryptos[sym]["price"]
+    
+    # Verificar saldo
+    async with balances_lock:
+        saldo = balances.get(uid, 0)
+        if saldo < gasto:
+            return await interaction.response.send_message(f"❌ Necesitás {fmt(gasto)} monedas. Tenés {fmt(saldo)}.", ephemeral=True)
         
-        # Si es la cartera de otro usuario, mostrar quién la pidió
-        if usuario:
-            embed.set_footer(text=f"Consultado por {interaction.user.display_name}")
+        # Descontar monedas
+        balances[uid] -= gasto
+        save_json(BALANCES_FILE, balances)
+    
+    # Calcular cantidad de crypto que recibe
+    cantidad_crypto = gasto / price
+    
+    # Guardar en holdings
+    holders = cryptos["holders"]
+    if uid not in holders:
+        holders[uid] = {"RSC": 0, "CTC": 0, "MMC": 0}
+    holders[uid][sym] += cantidad_crypto
+    save_cryptos(cryptos)
+    
+    # ACTUALIZAR PRECIO POR COMPRA (sube según cantidad comprada)
+    impacto_compra = (gasto / 50000) * 0.05  # Cada 50k monedas = +5% extra al precio
+    nuevo_precio_compra = round(cryptos[sym]["price"] * (1 + impacto_compra), 2)
+    cryptos[sym]["price"] = nuevo_precio_compra
+    cryptos[sym]["history"].append(nuevo_precio_compra)
+    save_cryptos(cryptos)
+    
+    embed = discord.Embed(
+        title=f"🟢 Compra de {sym}",
+        description=f"Compraste **{cantidad_crypto:.4f} {sym}** por **{fmt(gasto)}** monedas",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="💰 Precio unitario", value=f"{fmt(price)} monedas", inline=True)
+    embed.add_field(name="📈 Impacto en mercado", value=f"+{impacto_compra*100:.2f}% por la compra", inline=True)
+    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio_compra)} monedas", inline=True)
+    embed.add_field(name="💎 Total en cartera", value=f"{holders[uid][sym]:.4f} {sym}", inline=False)
+    embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
+    
+    await interaction.response.send_message(embed=embed)
 
-        await interaction.response.send_message(embed=embed)
+
+# ============================
+# /sellcrypto - Vender cryptos
+# ============================
+@tree.command(name="sellcrypto", description="🔴 Vender cryptos (crypto → monedas)")
+@app_commands.describe(
+    coin="Criptomoneda a vender (RSC, CTC, MMC)",
+    cantidad="Cantidad de crypto a vender, o 'a' para vender todo"
+)
+async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str):
+    
+    if not await ensure_guild_or_reply(interaction):
         return
+    
+    uid = str(interaction.user.id)
+    sym = coin.upper()
+    
+    # Validar crypto
+    if sym not in ("RSC", "CTC", "MMC"):
+        return await interaction.response.send_message("❌ Cripto inválida. Usá RSC, CTC o MMC.", ephemeral=True)
+    
+    # Obtener holdings
+    holders = cryptos["holders"]
+    user_holdings = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
+    cantidad_actual = user_holdings.get(sym, 0)
+    
+    if cantidad_actual == 0:
+        return await interaction.response.send_message(f"❌ No tenés {sym}.", ephemeral=True)
+    
+    # Procesar cantidad (soporta "a" para vender todo)
+    if cantidad.lower() == "a":
+        cantidad_vender = cantidad_actual
+    else:
+        try:
+            cantidad_vender = float(cantidad)
+            if cantidad_vender <= 0:
+                return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+        except ValueError:
+            return await interaction.response.send_message("❌ Usá un número o 'a' para vender todo.", ephemeral=True)
+    
+    # Verificar que tenga suficiente
+    if cantidad_vender > cantidad_actual:
+        return await interaction.response.send_message(f"❌ Tenés {cantidad_actual:.4f} {sym}. No podés vender {cantidad_vender:.4f}.", ephemeral=True)
+    
+    # Obtener precio actual
+    price = cryptos[sym]["price"]
+    
+    # Calcular ganancia
+    ganancia = cantidad_vender * price
+    
+    # Vender
+    user_holdings[sym] -= cantidad_vender
+    if user_holdings[sym] < 0.001:
+        user_holdings[sym] = 0
+    holders[uid] = user_holdings
+    save_cryptos(cryptos)
+    
+    # Dar monedas
+    await safe_add(uid, ganancia)
+    
+    # ACTUALIZAR PRECIO POR VENTA (baja según cantidad vendida)
+    impacto_venta = (ganancia / 50000) * 0.04  # Cada 50k monedas = -4% extra al precio
+    nuevo_precio_venta = round(cryptos[sym]["price"] * (1 - impacto_venta), 2)
+    nuevo_precio_venta = max(nuevo_precio_venta, 1)  # Precio mínimo 1
+    cryptos[sym]["price"] = nuevo_precio_venta
+    cryptos[sym]["history"].append(nuevo_precio_venta)
+    save_cryptos(cryptos)
+    
+    embed = discord.Embed(
+        title=f"🔴 Venta de {sym}",
+        description=f"Vendiste **{cantidad_vender:.4f} {sym}** por **{fmt(ganancia)}** monedas",
+        color=discord.Color.red()
+    )
+    embed.add_field(name="💰 Precio unitario", value=f"{fmt(price)} monedas", inline=True)
+    embed.add_field(name="📉 Impacto en mercado", value=f"-{impacto_venta*100:.2f}% por la venta", inline=True)
+    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio_venta)} monedas", inline=True)
+    embed.add_field(name="💎 Restante en cartera", value=f"{user_holdings[sym]:.4f} {sym}", inline=False)
+    embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
+    
+    await interaction.response.send_message(embed=embed)
 
+
+# ============================
+# /boughtcrypto - Ver cartera de cryptos
+# ============================
+@tree.command(name="boughtcrypto", description="💼 Ver tu cartera de cryptos o la de otro usuario")
+@app_commands.describe(usuario="Usuario para ver su cartera (opcional, solo admins)")
+async def boughtcrypto(interaction: discord.Interaction, usuario: Optional[discord.User] = None):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    # Determinar de quién mostrar la cartera
+    if usuario:
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Solo administradores pueden ver la cartera de otros usuarios.", ephemeral=True)
+        uid = str(usuario.id)
+        titulo = f"💼 Cartera de {usuario.display_name}"
+    else:
+        uid = str(interaction.user.id)
+        titulo = "💼 Tu cartera"
+    
+    holders = cryptos["holders"]
+    u = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
+    
+    lines = []
+    total_valor = 0
+    
+    for s in ("RSC", "CTC", "MMC"):
+        amt = u.get(s, 0)
+        if amt > 0:
+            valor = round(amt * cryptos[s]["price"], 2)
+            total_valor += valor
+            lines.append(f"**{s}** → {amt:.4f} (≈ {fmt(valor)} monedas)")
+    
+    if not lines:
+        msg = f"❌ {usuario.display_name} no tiene cryptos." if usuario else "❌ No tenés cryptos."
+        return await interaction.response.send_message(msg, ephemeral=True)
+    
+    if len(lines) > 1:
+        lines.append(f"\n**💰 Valor total:** ≈ {fmt(total_valor)} monedas")
+    
+    embed = discord.Embed(
+        title=titulo,
+        description="\n".join(lines),
+        color=discord.Color.gold()
+    )
+    
+    if usuario:
+        embed.set_footer(text=f"Consultado por {interaction.user.display_name}")
+    else:
+        embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
+    
+    await interaction.response.send_message(embed=embed)
     # ============================
     # ACCION INVALIDA
     # ============================
@@ -1838,434 +1598,6 @@ async def message(interaction: discord.Interaction, mensaje: str, canal: Optiona
     
     # Confirmación para el admin (ephemeral para no spamear)
     await interaction.response.send_message(f"✅ Mensaje enviado a {destino.mention}", ephemeral=True)
-# ============================
-# SISTEMA DE SORTEOS
-# ============================
-
-SORTEOS_FILE = os.path.join(DATA_DIR, "sorteos.json")
-
-def load_sorteos():
-    """Carga todos los sorteos"""
-    return load_json(SORTEOS_FILE, {"sorteos": {}})
-
-def save_sorteos(data):
-    """Guarda todos los sorteos"""
-    save_json(SORTEOS_FILE, data)
-
-def generar_codigo():
-    """Genera un código aleatorio de 4 letras mayúsculas"""
-    import random
-    letras = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    return ''.join(random.choice(letras) for _ in range(4))
-
-def codigo_existe(codigo, sorteos_data):
-    """Verifica si un código ya existe"""
-    return codigo in sorteos_data["sorteos"]
-
-def generar_codigo_unico():
-    """Genera un código único de 4 letras"""
-    sorteos_data = load_sorteos()
-    while True:
-        codigo = generar_codigo()
-        if not codigo_existe(codigo, sorteos_data):
-            return codigo
-
-# ============================
-# /sorteo crear
-# ============================
-@tree.command(name="sorteo_crear", description="🎲 Crear un nuevo sorteo")
-@app_commands.describe(
-    precio_ticket="Precio de cada ticket",
-    recompensa="Descripción de lo que se gana (ej: '100k monedas', 'Rol VIP', etc)",
-    limite_tickets="Límite total de tickets (opcional, 0 = sin límite)",
-    limite_por_usuario="Máximo de tickets por persona (opcional, 0 = sin límite)"
-)
-async def sorteo_crear(
-    interaction: discord.Interaction, 
-    precio_ticket: int,
-    recompensa: str,
-    limite_tickets: int = 0,
-    limite_por_usuario: int = 0
-):
-    
-    if not await ensure_guild_or_reply(interaction):
-        return
-    
-    # Validaciones básicas
-    if precio_ticket < 10:
-        return await interaction.response.send_message("❌ El precio mínimo por ticket es 10 monedas.", ephemeral=True)
-    
-    if len(recompensa) > 200:
-        return await interaction.response.send_message("❌ La descripción de la recompensa es muy larga (máx 200 caracteres).", ephemeral=True)
-    
-    if limite_tickets < 0:
-        limite_tickets = 0
-    if limite_por_usuario < 0:
-        limite_por_usuario = 0
-    
-    uid = str(interaction.user.id)
-    
-    # Generar código único
-    codigo = generar_codigo_unico()
-    
-    # Crear sorteo
-    sorteo = {
-        "creador": uid,
-        "creador_nombre": interaction.user.display_name,
-        "precio_ticket": precio_ticket,
-        "recompensa": recompensa,
-        "limite_tickets": limite_tickets,
-        "limite_por_usuario": limite_por_usuario,
-        "tickets_vendidos": 0,
-        "participantes": {},  # uid: cantidad_tickets
-        "activo": True,
-        "fecha_creacion": int(time.time()),
-        "codigo": codigo
-    }
-    
-    # Guardar
-    sorteos_data = load_sorteos()
-    sorteos_data["sorteos"][codigo] = sorteo
-    save_sorteos(sorteos_data)
-    
-    # Embed de confirmación
-    embed = discord.Embed(
-        title="🎲 ¡Sorteo Creado!",
-        description=f"**Código:** `{codigo}`\n\n**Recompensa:** {recompensa}",
-        color=0x9b59b6
-    )
-    
-    embed.add_field(name="💰 Precio por ticket", value=f"{fmt(precio_ticket)}", inline=True)
-    
-    if limite_tickets > 0:
-        embed.add_field(name="🎟️ Límite total", value=f"{limite_tickets} tickets", inline=True)
-    else:
-        embed.add_field(name="🎟️ Límite total", value="Sin límite", inline=True)
-    
-    if limite_por_usuario > 0:
-        embed.add_field(name="👤 Máx por persona", value=f"{limite_por_usuario} tickets", inline=True)
-    else:
-        embed.add_field(name="👤 Máx por persona", value="Sin límite", inline=True)
-    
-    embed.set_footer(text=f"Creado por {interaction.user.display_name} • Usá /sorteo comprar {codigo} para participar")
-    
-    await interaction.response.send_message(embed=embed)
-
-
-# ============================
-# /sorteo comprar
-# ============================
-@tree.command(name="sorteo_comprar", description="🎟️ Comprar tickets para un sorteo")
-@app_commands.describe(
-    codigo="Código de 4 letras del sorteo",
-    cantidad="Cantidad de tickets a comprar"
-)
-async def sorteo_comprar(interaction: discord.Interaction, codigo: str, cantidad: int):
-    
-    if not await ensure_guild_or_reply(interaction):
-        return
-    
-    # Validar cantidad
-    if cantidad <= 0:
-        return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
-    
-    # Normalizar código
-    codigo = codigo.upper().strip()
-    
-    # Cargar sorteos
-    sorteos_data = load_sorteos()
-    
-    # Verificar si existe
-    if codigo not in sorteos_data["sorteos"]:
-        return await interaction.response.send_message(f"❌ No existe un sorteo con el código `{codigo}`.", ephemeral=True)
-    
-    sorteo = sorteos_data["sorteos"][codigo]
-    
-    # Verificar si está activo
-    if not sorteo["activo"]:
-        return await interaction.response.send_message(f"❌ El sorteo `{codigo}` ya finalizó.", ephemeral=True)
-    
-    uid = str(interaction.user.id)
-    
-    # Verificar límite por usuario
-    tickets_actuales_usuario = sorteo["participantes"].get(uid, 0)
-    if sorteo["limite_por_usuario"] > 0:
-        if tickets_actuales_usuario + cantidad > sorteo["limite_por_usuario"]:
-            disponibles = sorteo["limite_por_usuario"] - tickets_actuales_usuario
-            return await interaction.response.send_message(
-                f"❌ Solo podés comprar {disponibles} tickets más (límite de {sorteo['limite_por_usuario']} por persona).",
-                ephemeral=True
-            )
-    
-    # Verificar límite total
-    if sorteo["limite_tickets"] > 0:
-        if sorteo["tickets_vendidos"] + cantidad > sorteo["limite_tickets"]:
-            disponibles = sorteo["limite_tickets"] - sorteo["tickets_vendidos"]
-            return await interaction.response.send_message(
-                f"❌ Solo quedan {disponibles} tickets disponibles.",
-                ephemeral=True
-            )
-    
-    # Calcular costo total
-    costo_total = cantidad * sorteo["precio_ticket"]
-    
-    # Verificar saldo
-    async with balances_lock:
-        saldo = balances.get(uid, 0)
-        if saldo < costo_total:
-            return await interaction.response.send_message(
-                f"❌ Necesitás {fmt(costo_total)} monedas y tenés {fmt(saldo)}.",
-                ephemeral=True
-            )
-        
-        # Descontar saldo
-        balances[uid] -= costo_total
-        save_json(BALANCES_FILE, balances)
-    
-    # Actualizar sorteo
-    sorteo["tickets_vendidos"] += cantidad
-    sorteo["participantes"][uid] = tickets_actuales_usuario + cantidad
-    save_sorteos(sorteos_data)
-    
-    # Embed de confirmación
-    embed = discord.Embed(
-        title="🎟️ ¡Compra Exitosa!",
-        description=f"Compraste **{cantidad}** tickets para el sorteo `{codigo}`",
-        color=0x2ecc71
-    )
-    
-    embed.add_field(name="💰 Costo total", value=f"{fmt(costo_total)}", inline=True)
-    embed.add_field(name="🎟️ Tus tickets", value=f"{sorteo['participantes'][uid]}", inline=True)
-    embed.add_field(name="🎲 Recompensa", value=sorteo["recompensa"], inline=False)
-    
-    embed.set_footer(text=f"Gracias por participar • Creado por {sorteo['creador_nombre']}")
-    
-    await interaction.response.send_message(embed=embed)
-
-
-# ============================
-# /sorteo realizar
-# ============================
-@tree.command(name="sorteo_realizar", description="🎲 Realizar el sorteo y elegir un ganador")
-@app_commands.describe(codigo="Código de 4 letras del sorteo a realizar")
-async def sorteo_realizar(interaction: discord.Interaction, codigo: str):
-    
-    if not await ensure_guild_or_reply(interaction):
-        return
-    
-    # Normalizar código
-    codigo = codigo.upper().strip()
-    
-    # Cargar sorteos
-    sorteos_data = load_sorteos()
-    
-    # Verificar si existe
-    if codigo not in sorteos_data["sorteos"]:
-        return await interaction.response.send_message(f"❌ No existe un sorteo con el código `{codigo}`.", ephemeral=True)
-    
-    sorteo = sorteos_data["sorteos"][codigo]
-    uid = str(interaction.user.id)
-    
-    # Verificar que sea el creador
-    if sorteo["creador"] != uid:
-        return await interaction.response.send_message(
-            f"❌ Solo el creador del sorteo ({sorteo['creador_nombre']}) puede realizarlo.",
-            ephemeral=True
-        )
-    
-    # Verificar que haya participantes
-    if not sorteo["participantes"]:
-        return await interaction.response.send_message(
-            f"❌ No hay participantes en este sorteo.",
-            ephemeral=True
-        )
-    
-    # Verificar que esté activo
-    if not sorteo["activo"]:
-        return await interaction.response.send_message(
-            f"❌ Este sorteo ya fue realizado.",
-            ephemeral=True
-        )
-    
-    # Desactivar sorteo
-    sorteo["activo"] = False
-    
-    # ===== SELECCIÓN DEL GANADOR =====
-    # Crear lista de participantes con sus tickets
-    participantes_lista = []
-    for participante_uid, tickets in sorteo["participantes"].items():
-        participantes_lista.extend([participante_uid] * tickets)
-    
-    # Elegir ganador aleatorio
-    ganador_uid = random.choice(participantes_lista)
-    
-    # Obtener información del ganador
-    try:
-        ganador = await interaction.guild.fetch_member(int(ganador_uid))
-        ganador_mention = ganador.mention
-        ganador_nombre = ganador.display_name
-    except:
-        ganador_mention = f"Usuario {ganador_uid}"
-        ganador_nombre = f"Usuario {ganador_uid}"
-    
-    # Guardar resultado
-    sorteo["ganador"] = ganador_uid
-    sorteo["fecha_sorteo"] = int(time.time())
-    save_sorteos(sorteos_data)
-    
-    # ===== EMBED DE RESULTADO =====
-    embed = discord.Embed(
-        title="🎲 ¡SORTEO REALIZADO!",
-        description=f"**Código:** `{codigo}`\n\n**Recompensa:** {sorteo['recompensa']}",
-        color=0xf1c40f
-    )
-    
-    embed.add_field(
-        name="🏆 GANADOR",
-        value=f"🎉 {ganador_mention}\n**{ganador_nombre}**",
-        inline=False
-    )
-    
-    # Estadísticas del sorteo
-    total_participantes = len(sorteo["participantes"])
-    embed.add_field(
-        name="📊 Estadísticas",
-        value=f"👥 Participantes: {total_participantes}\n"
-              f"🎟️ Tickets vendidos: {sorteo['tickets_vendidos']}\n"
-              f"💰 Recaudado: {fmt(sorteo['tickets_vendidos'] * sorteo['precio_ticket'])}",
-        inline=False
-    )
-    
-    # Lista de participantes (opcional, si no son muchos)
-    if total_participantes <= 20:
-        participantes_texto = ""
-        for p_uid, tickets in list(sorteo["participantes"].items())[:20]:
-            try:
-                p_user = await interaction.guild.fetch_member(int(p_uid))
-                p_nombre = p_user.display_name
-            except:
-                p_nombre = f"User {p_uid[:4]}"
-            participantes_texto += f"• {p_nombre}: {tickets} tickets\n"
-        
-        if participantes_texto:
-            embed.add_field(
-                name="📋 Participantes",
-                value=participantes_texto,
-                inline=False
-            )
-    
-    embed.set_footer(text=f"Sorteo creado por {sorteo['creador_nombre']} • Realizado por {interaction.user.display_name}")
-    
-    await interaction.response.send_message(embed=embed)
-    
-    # Mensaje extra para el ganador (opcional)
-    try:
-        await interaction.followup.send(f"🎉 ¡Felicidades {ganador_mention}! Ganaste el sorteo `{codigo}`: {sorteo['recompensa']}")
-    except:
-        pass
-
-
-# ============================
-# /sorteo lista — Ver sorteos activos
-# ============================
-@tree.command(name="sorteo_lista", description="📋 Ver todos los sorteos activos")
-async def sorteo_lista(interaction: discord.Interaction):
-    
-    if not await ensure_guild_or_reply(interaction):
-        return
-    
-    sorteos_data = load_sorteos()
-    sorteos_activos = {k: v for k, v in sorteos_data["sorteos"].items() if v["activo"]}
-    
-    if not sorteos_activos:
-        return await interaction.response.send_message("📭 No hay sorteos activos actualmente.", ephemeral=True)
-    
-    embed = discord.Embed(
-        title="🎲 Sorteos Activos",
-        description=f"Total: {len(sorteos_activos)} sorteos disponibles",
-        color=0x3498db
-    )
-    
-    for codigo, sorteo in list(sorteos_activos.items())[:10]:  # Máx 10 para no saturar
-        # Calcular tickets disponibles
-        if sorteo["limite_tickets"] > 0:
-            disponibles = sorteo["limite_tickets"] - sorteo["tickets_vendidos"]
-            tickets_text = f"{sorteo['tickets_vendidos']}/{sorteo['limite_tickets']} (quedan {disponibles})"
-        else:
-            tickets_text = f"{sorteo['tickets_vendidos']} (sin límite)"
-        
-        embed.add_field(
-            name=f"`{codigo}` - {sorteo['recompensa'][:50]}",
-            value=f"🎟️ Ticket: {fmt(sorteo['precio_ticket'])}\n"
-                  f"📊 Tickets: {tickets_text}\n"
-                  f"👑 Creador: {sorteo['creador_nombre']}",
-            inline=False
-        )
-    
-    embed.set_footer(text="Usá /sorteo comprar <código> <cantidad> para participar")
-    
-    await interaction.response.send_message(embed=embed)
-
-
-# ============================
-# /sorteo info — Ver info de un sorteo específico
-# ============================
-@tree.command(name="sorteo_info", description="ℹ️ Ver información detallada de un sorteo")
-@app_commands.describe(codigo="Código del sorteo")
-async def sorteo_info(interaction: discord.Interaction, codigo: str):
-    
-    if not await ensure_guild_or_reply(interaction):
-        return
-    
-    codigo = codigo.upper().strip()
-    sorteos_data = load_sorteos()
-    
-    if codigo not in sorteos_data["sorteos"]:
-        return await interaction.response.send_message(f"❌ No existe un sorteo con el código `{codigo}`.", ephemeral=True)
-    
-    sorteo = sorteos_data["sorteos"][codigo]
-    uid = str(interaction.user.id)
-    
-    embed = discord.Embed(
-        title=f"🎲 Sorteo `{codigo}`",
-        description=f"**Recompensa:** {sorteo['recompensa']}",
-        color=0x9b59b6 if sorteo["activo"] else 0x95a5a6
-    )
-    
-    # Estado
-    estado = "🟢 ACTIVO" if sorteo["activo"] else "🔴 FINALIZADO"
-    embed.add_field(name="📌 Estado", value=estado, inline=True)
-    
-    # Creador
-    embed.add_field(name="👑 Creador", value=sorteo['creador_nombre'], inline=True)
-    
-    # Precio y tickets
-    embed.add_field(name="💰 Precio ticket", value=fmt(sorteo['precio_ticket']), inline=True)
-    embed.add_field(name="🎟️ Tickets vendidos", value=sorteo['tickets_vendidos'], inline=True)
-    
-    # Límites
-    if sorteo["limite_tickets"] > 0:
-        embed.add_field(name="📊 Límite total", value=f"{sorteo['limite_tickets']}", inline=True)
-    if sorteo["limite_por_usuario"] > 0:
-        embed.add_field(name="👤 Máx por persona", value=f"{sorteo['limite_por_usuario']}", inline=True)
-    
-    # Participación del usuario
-    mis_tickets = sorteo["participantes"].get(uid, 0)
-    embed.add_field(name="🎟️ Tus tickets", value=mis_tickets, inline=True)
-    
-    # Si ya hay ganador
-    if not sorteo["activo"] and "ganador" in sorteo:
-        try:
-            ganador = await interaction.guild.fetch_member(int(sorteo["ganador"]))
-            ganador_nombre = ganador.display_name
-        except:
-            ganador_nombre = f"Usuario {sorteo['ganador']}"
-        embed.add_field(name="🏆 Ganador", value=ganador_nombre, inline=False)
-    
-    embed.set_footer(text=f"Creado el {format_timestamp(sorteo['fecha_creacion'])}")
-    
-    await interaction.response.send_message(embed=embed)
-
 # =========================
 #       BUFF SYSTEM
 # =========================
@@ -2314,54 +1646,6 @@ def buff_time_left(uid, buff_name):
         return 0
 
     return max(data[uid][buff_name] - now, 0)
-#------------------------------------------------
-#--------------------/post-----------------------
-#------------------------------------------------
-@tree.command(name="post", description="Subí un post a redes sociales 📱")
-async def post(interaction: discord.Interaction):
-    try:
-        # Verificación manual sin función externa
-        if interaction.guild is None or interaction.guild.id != ALLOWED_GUILD_ID:
-            await interaction.response.send_message("❌ Comando no disponible en este servidor.", ephemeral=True)
-            return
-
-        uid = str(interaction.user.id)
-
-        # Cooldown
-        remaining = post_time_left(uid)
-        if remaining > 0:
-            horas = remaining // 3600
-            minutos = (remaining % 3600) // 60
-            await interaction.response.send_message(
-                f"⏳ Volvé en **{horas}h {minutos}m**.",
-                ephemeral=True
-            )
-            return
-
-        # Generar ganancia
-        ganancia = random.randint(0, 6700)
-
-        # Guardar cooldown
-        data = load_post_cooldowns()
-        data[uid] = int(time.time())
-        save_post_cooldowns(data)
-
-        # Pagar
-        if ganancia > 0:
-            await safe_add(uid, ganancia)
-
-        # Responder
-        embed = discord.Embed(
-            title="📸 Post en redes",
-            description=f"📱 Ganaste **{fmt(ganancia)}** monedas!" if ganancia > 0 else "📱 No tuviste alcance 😔",
-            color=0x2ecc71 if ganancia > 0 else 0xe67e22
-        )
-        await interaction.response.send_message(embed=embed)
-
-    except Exception as e:
-        print(f"ERROR en /post: {e}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message("❌ Error inesperado.", ephemeral=True)
 # ============================
 # Juego: Encontrá la Piedra (/find)
 # ============================
@@ -2529,21 +1813,6 @@ def hand_value(cards):
         total -= 10
         aces -= 1
     return total
-
-POST_COOLDOWN_FILE = os.path.join(DATA_DIR, "post_cooldowns.json")
-def load_post_cooldowns():
-    return load_json(POST_COOLDOWN_FILE, {})
-
-def save_post_cooldowns(data):
-    save_json(POST_COOLDOWN_FILE, data)
-
-def post_time_left(uid):
-    data = load_post_cooldowns()
-    now = int(time.time())
-    last = data.get(uid, 0)
-    cooldown = 5 * 60 * 60  # 5 horas
-    remaining = (last + cooldown) - now
-    return max(0, remaining)
 # ---------- Helpers para 'apostar todo' ----------
 async def parse_bet(interaction: discord.Interaction, bet_str: str, min_bet: int = MIN_BET) -> Optional[float]:
     """
