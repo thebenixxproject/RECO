@@ -531,7 +531,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("RECO_1.54, sabias que 3 de cada 67 personas tienen un gato?" \
+    await interaction.followup.send("RECO_1.55, sabias que 3 de cada 67 personas tienen un gato?" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -1585,6 +1585,88 @@ async def setpricecrypto(interaction: discord.Interaction, coin: str, price: flo
     embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
 # ============================
+# /backup - Recibir backup por DM (solo balances, levels, cryptos)
+# ============================
+@tree.command(name="backup", description="👑 (Admin) Recibir backup de balances, niveles y cryptos por DM")
+async def backup(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo admins.", ephemeral=True)
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    # Leer archivos
+    with open(BALANCES_FILE, "r") as f:
+        balances_data = f.read()
+    with open(LEVELS_FILE, "r") as f:
+        levels_data = f.read()
+    with open(CRYPTO_FILE, "r") as f:
+        crypto_data = f.read()
+    
+    # Crear archivos para enviar
+    import io
+    balances_file = discord.File(io.BytesIO(balances_data.encode()), filename="balances.json")
+    levels_file = discord.File(io.BytesIO(levels_data.encode()), filename="levels.json")
+    crypto_file = discord.File(io.BytesIO(crypto_data.encode()), filename="cryptos.json")
+    
+    # Enviar al admin por DM
+    try:
+        await interaction.user.send("📦 **Backup de la economía**")
+        await interaction.user.send(file=balances_file)
+        await interaction.user.send(file=levels_file)
+        await interaction.user.send(file=crypto_file)
+        await interaction.followup.send("✅ Backup enviado por DM.", ephemeral=True)
+    except:
+        await interaction.followup.send("❌ No puedo enviarte DM. Habilitá mensajes privados.", ephemeral=True)
+# ============================
+# /restore - Restaurar balances desde backup
+# ============================
+@tree.command(name="restore", description="👑 (Admin) Restaurar balances desde un archivo backup")
+async def restore(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo admins.", ephemeral=True)
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    await interaction.followup.send(
+        "📤 **Subí el archivo `balances.json`** que quieras restaurar.\n"
+        "*(Tenés 60 segundos para subirlo)*",
+        ephemeral=True
+    )
+    
+    def check(msg):
+        return msg.author == interaction.user and len(msg.attachments) > 0
+    
+    try:
+        msg = await bot.wait_for("message", timeout=60, check=check)
+        archivo = msg.attachments[0]
+        
+        if not archivo.filename.endswith(".json"):
+            return await interaction.followup.send("❌ Solo archivos .json", ephemeral=True)
+        
+        # Descargar y guardar
+        contenido = await archivo.read()
+        
+        # Validar que sea JSON válido
+        import json
+        try:
+            json.loads(contenido)
+        except:
+            return await interaction.followup.send("❌ El archivo no es un JSON válido.", ephemeral=True)
+        
+        # Guardar en el archivo
+        with open(BALANCES_FILE, "wb") as f:
+            f.write(contenido)
+        
+        # Recargar en memoria
+        global balances
+        balances = load_json(BALANCES_FILE, {})
+        
+        await interaction.followup.send(f"✅ Balances restaurados correctamente.\n📊 Total de usuarios: {len(balances)}", ephemeral=True)
+        
+    except TimeoutError:
+        await interaction.followup.send("❌ Tiempo agotado. Volvé a intentarlo.", ephemeral=True)
+
+# ============================
 # /message - El bot dice lo que quieras
 # ============================
 @tree.command(name="message", description="🤖 Hacer que el bot diga un mensaje (solo admins)")
@@ -1661,6 +1743,112 @@ def buff_time_left(uid, buff_name):
         return 0
 
     return max(data[uid][buff_name] - now, 0)
+# ============================
+# SISTEMA DE IMPUESTOS
+# ============================
+
+# ID del usuario que recibe los impuestos (cambiá por tu ID)
+TAX_COLLECTOR_ID = "1304283875379511374"  # ibenixx
+
+# Tabla de salarios semanales por nivel
+SALARIOS = {
+    150: 10000,
+    200: 25000,
+    250: 40000,
+    300: 50000,
+    500: 80000,
+    650: 100000,
+    1000: 500000
+}
+
+def get_salario(level):
+    """Retorna el salario según el nivel"""
+    for req_level, salario in sorted(SALARIOS.items(), reverse=True):
+        if level >= req_level:
+            return salario
+    return 0
+
+
+# ============================
+# /pagarimpuestos - Paga salarios a los empleados
+# ============================
+@tree.command(name="pagarimpuestos", description="💰 (Admin) Pagar salarios semanales a los empleados")
+async def pagarimpuestos(interaction: discord.Interaction):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo administradores.", ephemeral=True)
+    
+    await interaction.response.defer()
+    
+    levels_data = load_levels()
+    pagados = 0
+    total_pagado = 0
+    
+    for uid, data in levels_data.items():
+        xp = data.get("xp", 0)
+        level = level_from_xp(xp)
+        salario = get_salario(level)
+        
+        if salario > 0:
+            await safe_add(uid, salario)
+            total_pagado += salario
+            pagados += 1
+    
+    embed = discord.Embed(
+        title="💰 Salarios Pagados",
+        description=f"Se pagaron **{fmt(total_pagado)}** monedas a **{pagados}** empleados.",
+        color=discord.Color.green()
+    )
+    embed.set_footer(text=f"Ejecutado por {interaction.user.display_name}")
+    
+    await interaction.followup.send(embed=embed)
+
+
+# ============================
+# /cobrarimpuestos - Cobra impuestos a los de nivel 150+
+# ============================
+@tree.command(name="cobrarimpuestos", description="🏛️ Cobrar impuestos a los ciudadanos de nivel 150+")
+async def cobrarimpuestos(interaction: discord.Interaction):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    if str(interaction.user.id) != TAX_COLLECTOR_ID:
+        return await interaction.response.send_message("🚫 Solo el recaudador de impuestos puede usar este comando.", ephemeral=True)
+    
+    await interaction.response.defer()
+    
+    levels_data = load_levels()
+    cobrados = 0
+    total_cobrado = 0
+    IMPUESTO = 2000
+    
+    for uid, data in levels_data.items():
+        xp = data.get("xp", 0)
+        level = level_from_xp(xp)
+        
+        # Solo nivel 150+ pagan impuestos
+        if level >= 150:
+            # Verificar que tenga suficiente saldo (puede quedar en negativo)
+            await safe_subtract(uid, IMPUESTO)
+            total_cobrado += IMPUESTO
+            cobrados += 1
+    
+    # Dar el dinero al recaudador
+    await safe_add(TAX_COLLECTOR_ID, total_cobrado)
+    
+    embed = discord.Embed(
+        title="🏛️ Impuestos Cobrados",
+        description=f"Se cobraron **{fmt(total_cobrado)}** monedas a **{cobrados}** ciudadanos.",
+        color=discord.Color.orange()
+    )
+    embed.add_field(name="💰 Recibiste", value=f"{fmt(total_cobrado)} monedas", inline=True)
+    embed.set_footer(text=f"Ejecutado por {interaction.user.display_name}")
+    
+    await interaction.followup.send(embed=embed)
 # ============================
 # Juego: Encontrá la Piedra (/find)
 # ============================
