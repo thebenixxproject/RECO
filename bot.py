@@ -1,4 +1,3 @@
-# bot.py — Versión corregida y funcional
 import os
 import json
 import random
@@ -441,17 +440,22 @@ def embed_card(title=None, description=None):
 balances_lock = asyncio.Lock()
 
 async def safe_add(user_id: str, amount: float):
+    """Agrega monedas (permite saldo negativo)"""
     async with balances_lock:
         balances[user_id] = balances.get(user_id, 0) + amount
         save_json(BALANCES_FILE, balances)
 
 async def safe_subtract(user_id: str, amount: float) -> bool:
+    """Resta monedas (permite saldo negativo, siempre devuelve True)"""
     async with balances_lock:
-        if balances.get(user_id, 0) < amount:
-            return False
         balances[user_id] = balances.get(user_id, 0) - amount
         save_json(BALANCES_FILE, balances)
         return True
+
+def can_bet(user_id: str, amount: float) -> bool:
+    """Verifica si el usuario puede apostar (solo si tiene saldo >= 0 y suficiente)"""
+    balance = balances.get(user_id, 0)
+    return balance >= amount and balance >= 0
 
 def fmt(n):
     try:
@@ -527,7 +531,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("RECO_1.53" \
+    await interaction.followup.send("RECO_1.54, sabias que 3 de cada 67 personas tienen un gato?" \
     "")
 
 #---------------eso de las boxes y gifts------------
@@ -825,6 +829,89 @@ async def work(interaction: discord.Interaction):
     last_work[uid] = now.isoformat()
     await interaction.response.send_message(f"🧰 Ganaste **{fmt(amount)}** monedas por trabajar.")
 # ============================
+# /flipcoin - Cara o cruz con multiplicador 1.75x
+# ============================
+@tree.command(name="flipcoin", description="🪙 Apostá a cara o cruz. Si ganás, recibís 1.75x tu apuesta")
+@app_commands.describe(
+    apuesta="Cantidad a apostar (o 'a' para apostar todo)",
+    eleccion="cara o cruz"
+)
+async def flipcoin(interaction: discord.Interaction, apuesta: str, eleccion: str):
+    
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    uid = str(interaction.user.id)
+    eleccion = eleccion.lower()
+    
+    if eleccion not in ["cara", "cruz"]:
+        return await interaction.response.send_message("❌ Elegí 'cara' o 'cruz'.", ephemeral=True)
+    
+    # Procesar apuesta (soporta "a" para apostar todo)
+    if apuesta.lower() == "a":
+        async with balances_lock:
+            bet_val = balances.get(uid, 0)
+            if bet_val <= 0:
+                return await interaction.response.send_message("❌ No tenés monedas para apostar.", ephemeral=True)
+            if bet_val < MIN_BET:
+                return await interaction.response.send_message(f"❌ La apuesta mínima es {MIN_BET}. Tenés {fmt(bet_val)}.", ephemeral=True)
+    else:
+        try:
+            bet_val = int(apuesta)
+            if bet_val <= 0:
+                return await interaction.response.send_message("❌ La apuesta debe ser mayor a 0.", ephemeral=True)
+            if bet_val < MIN_BET:
+                return await interaction.response.send_message(f"❌ La apuesta mínima es {MIN_BET}.", ephemeral=True)
+        except ValueError:
+            return await interaction.response.send_message("❌ Usá un número o 'a' para apostar todo.", ephemeral=True)
+    
+    # NUEVO: Verificar si puede apostar
+    if not can_bet(uid, bet_val):
+        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    
+    # Verificar saldo
+    async with balances_lock:
+        saldo = balances.get(uid, 0)
+        if saldo < bet_val:
+            return await interaction.response.send_message(f"❌ No tenés suficiente. Tenés {fmt(saldo)}.", ephemeral=True)
+        
+        # Descontar apuesta
+        balances[uid] -= bet_val
+        save_json(BALANCES_FILE, balances)
+    
+    # Tirar moneda
+    resultado = random.choice(["cara", "cruz"])
+    gano = (eleccion == resultado)
+    
+    if gano:
+        # Multiplicador 1.75x (devuelve apuesta x1.75)
+        ganancia = int(bet_val * 1.75)
+        await safe_add(uid, ganancia)
+        
+        embed = discord.Embed(
+            title="🪙 Cara o Cruz",
+            description=f"🎉 **¡GANASTE!**",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="💰 Apuesta", value=f"{fmt(bet_val)}", inline=True)
+        embed.add_field(name="🎲 Elegiste", value=eleccion.upper(), inline=True)
+        embed.add_field(name="🪙 Resultado", value=resultado.upper(), inline=True)
+        embed.add_field(name="💵 Ganaste", value=f"{fmt(ganancia)} (x1.75)", inline=False)
+    else:
+        embed = discord.Embed(
+            title="🪙 Cara o Cruz",
+            description=f"💸 **PERDISTE**",
+            color=discord.Color.red()
+        )
+        embed.add_field(name="💰 Apuesta", value=f"{fmt(bet_val)}", inline=True)
+        embed.add_field(name="🎲 Elegiste", value=eleccion.upper(), inline=True)
+        embed.add_field(name="🪙 Resultado", value=resultado.upper(), inline=True)
+        embed.add_field(name="💸 Perdiste", value=f"{fmt(bet_val)}", inline=False)
+    
+    embed.set_footer(text=f"Comando ejecutado por {interaction.user.display_name}")
+    await interaction.response.send_message(embed=embed)
+    
+# ============================
 # /towers (MODIFICADO - con "a" y sin fotos)
 # ============================
 
@@ -1004,6 +1091,10 @@ async def towers(interaction: discord.Interaction, cantidad: str):
         except ValueError:
             return await interaction.response.send_message("❌ Usá un número o 'a' para apostar todo.", ephemeral=True)
 
+    # NUEVO: Verificar si puede apostar
+    if not can_bet(uid, bet_val):
+        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+
     # Verificar saldo
     async with balances_lock:
         saldo = balances.get(uid, 0)
@@ -1081,16 +1172,19 @@ async def update_level_price_periodically():
 # SISTEMA DE CRYPTOS - COMPLETO CORREGIDO
 # ============================
 
-# ------------ CRYPTOS ------------
+# ============================
+# SISTEMA DE CRYPTOS - VERSIÓN REALISTA
+# ============================
+
 CRYPTO_FILE = os.path.join(DATA_DIR, "cryptos.json")
 
 def load_cryptos():
     data = load_json(CRYPTO_FILE, None)
     if data is None or data == {}:
         data = {
-            "RSC": {"price": 100, "history": []},
-            "CTC": {"price": 200, "history": []},
-            "MMC": {"price": 50, "history": []},
+            "RSC": {"price": 100, "history": [], "volumen_24h": 0},
+            "CTC": {"price": 200, "history": [], "volumen_24h": 0},
+            "MMC": {"price": 50, "history": [], "volumen_24h": 0},
             "holders": {}
         }
         save_cryptos(data)
@@ -1102,15 +1196,37 @@ def save_cryptos(data):
 cryptos = load_cryptos()
 
 async def update_crypto_prices():
+    """Actualización de precios: 90% aleatorio, 10% oferta/demanda"""
     await bot.wait_until_ready()
     
     while not bot.is_closed():
         for sym in ("RSC", "CTC", "MMC"):
+            # Precio actual
             price = cryptos[sym]["price"]
+            volumen = cryptos[sym].get("volumen_24h", 0)
             
-            change = random.uniform(-0.08, 0.08)
-            new_price = max(1, price + price * change)
+            # 1. Movimiento aleatorio (90% de la fluctuación)
+            # Entre -5% y +5% (más realista)
+            random_change = random.uniform(-0.05, 0.05)
+            
+            # 2. Factor de oferta/demanda (10% de la fluctuación)
+            # Si hubo mucho volumen, afecta ligeramente
+            # Máximo ±2% por alta demanda
+            demand_factor = 0
+            if volumen > 10000:
+                demand_factor = min(0.02, volumen / 500000)  # Máx 2%
+            elif volumen < -10000:
+                demand_factor = max(-0.02, volumen / 500000)
+            
+            # Cambio total: 90% aleatorio + 10% oferta/demanda
+            total_change = (random_change * 0.9) + (demand_factor * 0.1)
+            total_change = max(-0.08, min(total_change, 0.08))  # Límite ±8%
+            
+            new_price = max(1, price * (1 + total_change))
             new_price = round(new_price, 2)
+            
+            # Resetear volumen cada hora (simula 24h pero más dinámico)
+            cryptos[sym]["volumen_24h"] = max(0, volumen * 0.8)  # Decae 20% por hora
             
             cryptos[sym]["price"] = new_price
             cryptos[sym]["history"].append(new_price)
@@ -1119,7 +1235,7 @@ async def update_crypto_prices():
                 cryptos[sym]["history"].pop(0)
         
         save_cryptos(cryptos)
-        await asyncio.sleep(300)
+        await asyncio.sleep(300)  # 5 minutos
 
 
 # ============================
@@ -1202,7 +1318,7 @@ async def cryptostatus(interaction: discord.Interaction, coin: Optional[str] = N
 
 
 # ============================
-# /buycrypto
+# /buycrypto - Con comisión y sin bug
 # ============================
 @tree.command(name="buycrypto", description="🟢 Comprar cryptos (monedas → crypto)")
 @app_commands.describe(coin="Criptomoneda a comprar (RSC, CTC, MMC)", cantidad="Cantidad en monedas, o 'a' para gastar todo")
@@ -1215,8 +1331,9 @@ async def buycrypto(interaction: discord.Interaction, coin: str, cantidad: str):
     sym = coin.upper()
     
     if sym not in ("RSC", "CTC", "MMC"):
-        return await interaction.response.send_message("❌ Cripto inválida. Usá RSC, CTC o MMC.", ephemeral=True)
+        return await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
     
+    # Procesar cantidad
     if cantidad.lower() == "a":
         async with balances_lock:
             gasto = balances.get(uid, 0)
@@ -1230,8 +1347,14 @@ async def buycrypto(interaction: discord.Interaction, coin: str, cantidad: str):
         except ValueError:
             return await interaction.response.send_message("❌ Usá un número o 'a'.", ephemeral=True)
     
-    price = cryptos[sym]["price"]
+    # Comisión del 1% por compra
+    comision = round(gasto * 0.01, 2)
+    gasto_real = gasto - comision
     
+    price = cryptos[sym]["price"]
+    cantidad_crypto = gasto_real / price
+    
+    # Verificar saldo
     async with balances_lock:
         saldo = balances.get(uid, 0)
         if saldo < gasto:
@@ -1239,35 +1362,32 @@ async def buycrypto(interaction: discord.Interaction, coin: str, cantidad: str):
         balances[uid] -= gasto
         save_json(BALANCES_FILE, balances)
     
-    cantidad_crypto = gasto / price
-    
+    # Guardar holdings
     holders = cryptos["holders"]
     if uid not in holders:
         holders[uid] = {"RSC": 0, "CTC": 0, "MMC": 0}
     holders[uid][sym] += cantidad_crypto
     save_cryptos(cryptos)
     
-    impacto_compra = (gasto / 50000) * 0.05
-    nuevo_precio = round(cryptos[sym]["price"] * (1 + impacto_compra), 2)
-    cryptos[sym]["price"] = nuevo_precio
-    cryptos[sym]["history"].append(nuevo_precio)
+    # Registrar volumen (solo 10% de impacto real)
+    cryptos[sym]["volumen_24h"] = cryptos[sym].get("volumen_24h", 0) + (gasto * 0.1)
     save_cryptos(cryptos)
     
     embed = discord.Embed(
         title=f"🟢 Compra de {sym}",
-        description=f"Compraste **{cantidad_crypto:.4f} {sym}** por **{fmt(gasto)}** monedas",
+        description=f"Compraste **{cantidad_crypto:.4f} {sym}**",
         color=discord.Color.green()
     )
-    embed.add_field(name="💰 Precio", value=f"{fmt(price)}", inline=True)
-    embed.add_field(name="📈 Impacto", value=f"+{impacto_compra*100:.2f}%", inline=True)
-    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio)}", inline=True)
+    embed.add_field(name="💰 Gastado", value=f"{fmt(gasto)} monedas", inline=True)
+    embed.add_field(name="💸 Comisión (1%)", value=f"{fmt(comision)} monedas", inline=True)
+    embed.add_field(name="💎 Precio unitario", value=f"{fmt(price)}", inline=True)
     embed.add_field(name="💎 Cartera", value=f"{holders[uid][sym]:.4f} {sym}", inline=False)
     embed.set_footer(text=interaction.user.display_name)
     await interaction.response.send_message(embed=embed)
 
 
 # ============================
-# /sellcrypto
+# /sellcrypto - Con comisión y sin bug
 # ============================
 @tree.command(name="sellcrypto", description="🔴 Vender cryptos (crypto → monedas)")
 @app_commands.describe(coin="Criptomoneda a vender (RSC, CTC, MMC)", cantidad="Cantidad de crypto, o 'a' para vender todo")
@@ -1280,7 +1400,7 @@ async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str)
     sym = coin.upper()
     
     if sym not in ("RSC", "CTC", "MMC"):
-        return await interaction.response.send_message("❌ Cripto inválida. Usá RSC, CTC o MMC.", ephemeral=True)
+        return await interaction.response.send_message("❌ Cripto inválida.", ephemeral=True)
     
     holders = cryptos["holders"]
     user_holdings = holders.get(uid, {"RSC": 0, "CTC": 0, "MMC": 0})
@@ -1289,6 +1409,7 @@ async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str)
     if cantidad_actual == 0:
         return await interaction.response.send_message(f"❌ No tenés {sym}.", ephemeral=True)
     
+    # Procesar cantidad
     if cantidad.lower() == "a":
         cantidad_vender = cantidad_actual
     else:
@@ -1300,34 +1421,36 @@ async def sellcrypto(interaction: discord.Interaction, coin: str, cantidad: str)
             return await interaction.response.send_message("❌ Usá un número o 'a'.", ephemeral=True)
     
     if cantidad_vender > cantidad_actual:
-        return await interaction.response.send_message(f"❌ Tenés {cantidad_actual:.4f}. No podés vender {cantidad_vender:.4f}.", ephemeral=True)
+        return await interaction.response.send_message(f"❌ Tenés {cantidad_actual:.4f}.", ephemeral=True)
     
     price = cryptos[sym]["price"]
-    ganancia = cantidad_vender * price
+    ganancia_bruta = cantidad_vender * price
     
+    # Comisión del 1% por venta
+    comision = round(ganancia_bruta * 0.01, 2)
+    ganancia_neta = ganancia_bruta - comision
+    
+    # Vender
     user_holdings[sym] -= cantidad_vender
     if user_holdings[sym] < 0.001:
         user_holdings[sym] = 0
     holders[uid] = user_holdings
     save_cryptos(cryptos)
     
-    await safe_add(uid, ganancia)
+    await safe_add(uid, ganancia_neta)
     
-    impacto_venta = (ganancia / 50000) * 0.04
-    nuevo_precio = round(cryptos[sym]["price"] * (1 - impacto_venta), 2)
-    nuevo_precio = max(nuevo_precio, 1)
-    cryptos[sym]["price"] = nuevo_precio
-    cryptos[sym]["history"].append(nuevo_precio)
+    # Registrar volumen (solo 10% de impacto real)
+    cryptos[sym]["volumen_24h"] = cryptos[sym].get("volumen_24h", 0) - (ganancia_bruta * 0.1)
     save_cryptos(cryptos)
     
     embed = discord.Embed(
         title=f"🔴 Venta de {sym}",
-        description=f"Vendiste **{cantidad_vender:.4f} {sym}** por **{fmt(ganancia)}** monedas",
+        description=f"Vendiste **{cantidad_vender:.4f} {sym}**",
         color=discord.Color.red()
     )
-    embed.add_field(name="💰 Precio", value=f"{fmt(price)}", inline=True)
-    embed.add_field(name="📉 Impacto", value=f"-{impacto_venta*100:.2f}%", inline=True)
-    embed.add_field(name="🔄 Nuevo precio", value=f"{fmt(nuevo_precio)}", inline=True)
+    embed.add_field(name="💰 Recibido", value=f"{fmt(ganancia_neta)} monedas", inline=True)
+    embed.add_field(name="💸 Comisión (1%)", value=f"{fmt(comision)} monedas", inline=True)
+    embed.add_field(name="💎 Precio unitario", value=f"{fmt(price)}", inline=True)
     embed.add_field(name="💎 Restante", value=f"{user_holdings[sym]:.4f} {sym}", inline=False)
     embed.set_footer(text=interaction.user.display_name)
     await interaction.response.send_message(embed=embed)
@@ -1562,6 +1685,10 @@ async def find(interaction: discord.Interaction, bet: str):
 
     bet_val = int(parsed)
 
+    # NUEVO: Verificar si puede apostar
+    if not can_bet(uid, bet_val):
+        return await interaction.followup.send("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+
     async with balances_lock:
         if balances.get(uid, 0) < bet_val:
             return await interaction.followup.send("❌ Saldo insuficiente.", ephemeral=True)
@@ -1739,6 +1866,11 @@ async def roulette(interaction: discord.Interaction, bet: str, choice: str):
         return
     bet_val = int(parsed)
     uid = str(interaction.user.id)
+    
+    # NUEVO: Verificar si puede apostar
+    if not can_bet(uid, bet_val):
+        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    
     async with balances_lock:
         if balances.get(uid, 0) < bet_val:
             await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
@@ -1778,6 +1910,11 @@ async def slots(interaction: discord.Interaction, bet: str):
         return
     bet_val = int(parsed)
     uid = str(interaction.user.id)
+    
+    # NUEVO: Verificar si puede apostar
+    if not can_bet(uid, bet_val):
+        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    
     async with balances_lock:
         if balances.get(uid, 0) < bet_val:
             await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
@@ -2028,6 +2165,10 @@ async def blackjack(interaction: discord.Interaction, bet: str):
         return
 
     bet_val = int(parsed)
+
+    # NUEVO: Verificar si puede apostar
+    if not can_bet(uid, bet_val):
+        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
 
     async with balances_lock:
         if balances.get(uid, 0) < bet_val:
