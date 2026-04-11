@@ -68,17 +68,7 @@ LEVEL_PRICE_FILE = os.path.join(DATA_DIR, "level_price.json")
 PRICE_HISTORY_FILE = os.path.join(DATA_DIR, "price_history.json")
 BUFFS_FILE = os.path.join(DATA_DIR, "buffs.json")
 CASINO_STOCK_FILE = os.path.join(DATA_DIR, "casino_stock.json")
-CASINO_STOCK_INICIAL = 5000000  # 5,000,000 USD
-CASINO_STOCK_MINIMO = 50000      # 50,000 USD
 
-def load_casino_stock():
-    data = load_json(CASINO_STOCK_FILE, {"stock": CASINO_STOCK_INICIAL})
-    return data.get("stock", CASINO_STOCK_INICIAL)
-
-def save_casino_stock(stock):
-    save_json(CASINO_STOCK_FILE, {"stock": stock})
-
-casino_stock = load_casino_stock()
 
 def load_json(path, default=None):
     if os.path.exists(path):
@@ -92,6 +82,29 @@ def load_json(path, default=None):
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+
+
+# ========== CASINO STOCK ==========
+CASINO_STOCK_INICIAL = 5000000  # 5,000,000 USD
+CASINO_STOCK_MINIMO = 50000      # 50,000 USD
+
+def load_casino_stock():
+    data = load_json(CASINO_STOCK_FILE, {"stock": CASINO_STOCK_INICIAL})
+    return data.get("stock", CASINO_STOCK_INICIAL)
+
+def save_casino_stock(stock):
+    save_json(CASINO_STOCK_FILE, {"stock": stock})
+
+def update_casino_stock(cambio):
+    stock = load_casino_stock()
+    nuevo_stock = stock + cambio
+    if nuevo_stock < 0:
+        nuevo_stock = 0
+    save_casino_stock(nuevo_stock)
+    return nuevo_stock
+
+casino_stock = load_casino_stock()
+
 
 # ========== FUNCIONES DE NIVELES ==========
 def xp_required_for_level(level):
@@ -159,7 +172,6 @@ def update_level_price_auto():
         save_level_price(nuevo_precio)
         print(f"💰 Precio de nivel actualizado: {precio_actual} → {nuevo_precio}")
     return nuevo_precio
-
 # ========== DATOS PERSISTENTES ==========
 balances = load_json(BALANCES_FILE, {})
 shared_accounts = load_json(SHARED_FILE, {})
