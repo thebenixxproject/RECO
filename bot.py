@@ -67,6 +67,18 @@ XP_CONFIG_FILE = os.path.join(DATA_DIR, "xp_config.json")
 LEVEL_PRICE_FILE = os.path.join(DATA_DIR, "level_price.json")
 PRICE_HISTORY_FILE = os.path.join(DATA_DIR, "price_history.json")
 BUFFS_FILE = os.path.join(DATA_DIR, "buffs.json")
+CASINO_STOCK_FILE = os.path.join(DATA_DIR, "casino_stock.json")
+CASINO_STOCK_INICIAL = 5000000  # 5,000,000 USD
+CASINO_STOCK_MINIMO = 50000      # 50,000 USD
+
+def load_casino_stock():
+    data = load_json(CASINO_STOCK_FILE, {"stock": CASINO_STOCK_INICIAL})
+    return data.get("stock", CASINO_STOCK_INICIAL)
+
+def save_casino_stock(stock):
+    save_json(CASINO_STOCK_FILE, {"stock": stock})
+
+casino_stock = load_casino_stock()
 
 def load_json(path, default=None):
     if os.path.exists(path):
@@ -335,7 +347,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("🧹 **THE GREAT RESET** 🧹\n*El bot ha sido reiniciado con una nueva economía realista.*")
+    await interaction.followup.send("# THE GREAT RESET")
 
 # -------------------------
 # Parámetros generales
