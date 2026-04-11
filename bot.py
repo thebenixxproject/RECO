@@ -2077,7 +2077,54 @@ async def info(interaction: discord.Interaction):
     embed.add_field(name="💸 Precio del Nivel", value=f"**Valor actual:** `{fmt(precio_actual)}` USD\n**Valor de venta:** `{fmt(venta)}` USD (70%)\n*Se actualiza automáticamente cada hora*", inline=False)
     embed.add_field(name="📐 Fórmula", value=f"`Precio = 0.114 × √({fmt(total_monedas)}) = {fmt(precio_actual)}`", inline=False)
     await interaction.followup.send(embed=embed)
+# ============================
+# /casino_stock - Ver stock del casino
+# ============================
+@tree.command(name="casino_stock", description="🏦 Ver el stock actual del casino")
+async def casino_stock(interaction: discord.Interaction):
+    if not await ensure_guild_or_reply(interaction):
+        return
+    
+    stock = load_casino_stock()
+    
+    embed = discord.Embed(
+        title="🏦 Stock del Casino",
+        description=f"El casino tiene **{fmt(stock)} USD** disponibles.",
+        color=discord.Color.blue()
+    )
+    
+    if stock < 50000:
+        embed.add_field(name="🔴 CASINO CERRADO", value="No se puede apostar hasta que el stock se recupere.", inline=False)
+    elif stock < 100000:
+        embed.add_field(name="⚠️ Stock Bajo", value="El casino está por quedarse sin fondos.", inline=False)
+    
+    await interaction.response.send_message(embed=embed)
 
+
+# ============================
+# /add_casino_stock - Agregar stock (Admin)
+# ============================
+@tree.command(name="add_casino_stock", description="👑 (Admin) Agregar stock al casino")
+@app_commands.describe(cantidad="Cantidad de USD a agregar")
+async def add_casino_stock(interaction: discord.Interaction, cantidad: int):
+    if not await ensure_guild_or_reply(interaction):
+        return
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo admins.", ephemeral=True)
+    if cantidad <= 0:
+        return await interaction.response.send_message("❌ La cantidad debe ser positiva.", ephemeral=True)
+    
+    stock_actual = load_casino_stock()
+    nuevo_stock = stock_actual + cantidad
+    save_casino_stock(nuevo_stock)
+    
+    embed = discord.Embed(
+        title="🏦 Stock del Casino Actualizado",
+        description=f"Se agregaron **{fmt(cantidad)} USD** al stock.\nStock actual: **{fmt(nuevo_stock)} USD**",
+        color=discord.Color.green()
+    )
+    embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
+    await interaction.response.send_message(embed=embed)
 # ============================
 # RUN
 # ============================
