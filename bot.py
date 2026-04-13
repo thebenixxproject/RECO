@@ -1306,21 +1306,56 @@ class FindView(discord.ui.View):
         except:
             await interaction.channel.send(embed=embed)
 
-# ---------- Helpers para 'apostar todo' ----------
+# ---------- Helpers para 'apostar todo' y notación k/m ----------
+def parse_number(numero_str: str) -> float:
+    """
+    Convierte strings como '1k', '2.5m', '1.000.000', '93.921' a números.
+    """
+    s = numero_str.strip().lower()
+    
+    # Detectar 'k' (miles) y 'm' (millones)
+    if s.endswith('k'):
+        try:
+            return float(s[:-1]) * 1000
+        except:
+            return None
+    elif s.endswith('m'):
+        try:
+            return float(s[:-1]) * 1000000
+        except:
+            return None
+    
+    # Detectar puntos como separadores de miles (ej: 1.000.000 o 93.921)
+    if '.' in s and s.replace('.', '').isdigit():
+        # Sacar todos los puntos y convertir a entero/flotante
+        s_sin_puntos = s.replace('.', '')
+        try:
+            return float(s_sin_puntos)
+        except:
+            pass
+    
+    # Número normal
+    try:
+        return float(s)
+    except:
+        return None
+
 async def parse_bet(interaction: discord.Interaction, bet_str: str, min_bet: int = MIN_BET) -> Optional[float]:
+    """
+    Recibe bet_str (puede ser 'a', '1k', '1m', número con puntos, o número normal)
+    """
     uid = str(interaction.user.id)
     balance = balances.get(uid, 0)
-    if isinstance(bet_str, (int, float)):
-        b = float(bet_str)
+    s = bet_str.strip().lower()
+    
+    if s == "a":
+        b = float(balance)
     else:
-        s = str(bet_str).strip().lower()
-        if s == "a":
-            b = float(balance)
-        else:
-            try:
-                b = float(s)
-            except:
-                return None
+        parsed = parse_number(bet_str)
+        if parsed is None:
+            return None
+        b = parsed
+    
     if b < min_bet:
         return None
     return b
