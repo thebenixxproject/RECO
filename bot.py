@@ -359,7 +359,7 @@ async def on_ready():
 @tree.command(name="ping", description="Prueba de conexión")
 async def ping(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False)
-    await interaction.followup.send("# THE GREAT RESET")
+    await interaction.followup.send("# THE GREAT RESET, RESONA OG")
 
 # -------------------------
 # Parámetros generales
@@ -2160,6 +2160,44 @@ async def add_casino_stock(interaction: discord.Interaction, cantidad: int):
     )
     embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
+# ============================
+# /updatelevelprice - Forzar actualización del precio del nivel
+# ============================
+@tree.command(name="updatelevelprice", description="👑 (Admin) Forzar actualización del precio del nivel")
+async def updatelevelprice(interaction: discord.Interaction):
+    if not await ensure_guild_or_reply(interaction):
+        return
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("🚫 Solo administradores pueden usar este comando.", ephemeral=True)
+    
+    await interaction.response.defer()
+    
+    # Obtener dinero total
+    balances_data = load_json(BALANCES_FILE, {})
+    dinero_total = sum(balances_data.values())
+    
+    # Calcular nuevo precio
+    nuevo_precio = calcular_precio_nivel(dinero_total)
+    
+    # Guardar nuevo precio
+    save_level_price(nuevo_precio)
+    
+    # También actualizar la variable global PRECIO_NIVEL
+    global PRECIO_NIVEL
+    PRECIO_NIVEL = nuevo_precio
+    
+    embed = discord.Embed(
+        title="💰 Precio de Nivel Actualizado",
+        description=f"El precio del nivel se ha actualizado manualmente.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="💰 Dinero total", value=f"{fmt(dinero_total)} USD", inline=True)
+    embed.add_field(name="📐 √(Dinero total)", value=f"{dinero_total ** 0.5:.0f}", inline=True)
+    embed.add_field(name="🔄 Nuevo precio", value=f"`{fmt(nuevo_precio)} USD`", inline=True)
+    embed.add_field(name="💸 Valor de venta", value=f"`{fmt(int(nuevo_precio * 0.70))} USD` (70%)", inline=True)
+    embed.set_footer(text=f"Actualizado por {interaction.user.display_name}")
+    
+    await interaction.followup.send(embed=embed)
 # ============================
 # RUN
 # ============================
