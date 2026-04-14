@@ -298,9 +298,24 @@ async def safe_subtract(user_id: str, amount: float) -> bool:
         save_json(BALANCES_FILE, balances)
         return True
 
-def can_bet(user_id: str, amount: float) -> bool:
+def can_bet(user_id: str, amount: float) -> tuple[bool, str]:
+    """
+    Verifica si el usuario puede apostar.
+    Retorna (True/False, mensaje_de_error)
+    """
     balance = balances.get(user_id, 0)
-    return balance >= amount and balance >= 0
+    stock = load_casino_stock()
+    
+    if balance < amount:
+        return False, f"❌ Saldo insuficiente. Tenés {fmt(balance)} USD."
+    
+    if balance < 0:
+        return False, "❌ Tenés deuda. Usá `/work` para salir de números rojos."
+    
+    if amount > stock:
+        return False, f"❌ El casino no tiene suficiente stock. Stock actual: {fmt(stock)} USD."
+    
+    return True, ""
 
 def fmt(n):
     try:
@@ -419,22 +434,43 @@ async def add(interaction: discord.Interaction, usuario: discord.User, cantidad:
     await safe_add(str(usuario.id), cantidad)
     await interaction.response.send_message(f"💸 Se agregaron **{fmt(cantidad)} USD** a {usuario.mention}")
 
-@tree.command(name="remove", description="(Admin) Quitar monedas a un usuario")
-@app_commands.describe(usuario="Usuario", cantidad="Cantidad a quitar")
-async def remove(interaction: discord.Interaction, usuario: discord.User, cantidad: int):
+@tree.command(name="remove", description="(Admin) Quitar USD a un usuario (puede dejarlo en negativo)")
+@app_commands.describe(usuario="Usuario", cantidad="Cantidad a quitar (o 'a' para quitar todo)")
+async def remove(interaction: discord.Interaction, usuario: discord.User, cantidad: str):
     if not await ensure_guild_or_reply(interaction):
         return
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("🚫 Solo administradores.", ephemeral=True)
         return
-    if cantidad <= 0:
-        await interaction.response.send_message("❌ Monto inválido.", ephemeral=True)
-        return
+    
     uid = str(usuario.id)
-    async with balances_lock:
-        balances[uid] = max(0, balances.get(uid, 0) - cantidad)
-        save_json(BALANCES_FILE, balances)
-    await interaction.response.send_message(f"💰 Se quitaron **{fmt(cantidad)} USD** a {usuario.mention}")
+    
+    # Procesar cantidad (soporta "a" para quitar todo)
+    if cantidad.lower() == "a":
+        async with balances_lock:
+            cantidad_a_quitar = balances.get(uid, 0)
+            if cantidad_a_quitar <= 0:
+                return await interaction.response.send_message("❌ El usuario ya tiene saldo 0 o negativo.", ephemeral=True)
+            balances[uid] = 0
+            save_json(BALANCES_FILE, balances)
+        await interaction.response.send_message(f"💰 Se quitaron **{fmt(cantidad_a_quitar)} USD** a {usuario.mention} (saldo actual: 0 USD)")
+    else:
+        try:
+            cantidad_a_quitar = int(cantidad)
+            if cantidad_a_quitar <= 0:
+                return await interaction.response.send_message("❌ Monto inválido.", ephemeral=True)
+        except ValueError:
+            return await interaction.response.send_message("❌ Usá un número o 'a' para quitar todo.", ephemeral=True)
+        
+        async with balances_lock:
+            balances[uid] = balances.get(uid, 0) - cantidad_a_quitar
+            save_json(BALANCES_FILE, balances)
+        
+        saldo_nuevo = balances.get(uid, 0)
+        if saldo_nuevo < 0:
+            await interaction.response.send_message(f"💰 Se quitaron **{fmt(cantidad_a_quitar)} USD** a {usuario.mention}. Su saldo ahora es **{fmt(saldo_nuevo)} USD** (en negativo).")
+        else:
+            await interaction.response.send_message(f"💰 Se quitaron **{fmt(cantidad_a_quitar)} USD** a {usuario.mention}. Saldo actual: **{fmt(saldo_nuevo)} USD**")
 
 # -------------------------
 # Economy commands
@@ -541,9 +577,13 @@ async def crime(interaction: discord.Interaction):
     else:
         loss = 400
         async with balances_lock:
-            balances[user_id] = max(0, balances.get(user_id, 0) - loss)
+            balances[user_id] = balances.get(user_id, 0) - loss
             save_json(BALANCES_FILE, balances)
-        await interaction.response.send_message(f"🚔 Te atraparon: te sacaron **{fmt(loss)} USD**.")
+        nuevo_saldo = balances.get(user_id, 0)
+        if nuevo_saldo < 0:
+            await interaction.response.send_message(f"🚔 Te atraparon: perdiste **{fmt(loss)} USD**. Ahora tenés deuda de **{fmt(abs(nuevo_saldo))} USD**.")
+        else:
+            await interaction.response.send_message(f"🚔 Te atraparon: te sacaron **{fmt(loss)} USD**.")
 
 # -------------------------
 # DAILY / WORK
@@ -648,21 +688,31 @@ async def flipcoin(interaction: discord.Interaction, apuesta: str, eleccion: str
     elif user_level >= 50:
         max_bet = 25000
     
+       # Límite por nivel
     if bet_val > max_bet:
         return await interaction.response.send_message(f"❌ Apuesta máxima para tu nivel: {fmt(max_bet)} USD.", ephemeral=True)
     
-    if not can_bet(uid, bet_val):
-        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    # ========== VERIFICACIÓN DE STOCK Y SALDO ==========
+    puede_apostar, mensaje_error = can_bet(uid, bet_val)
+    if not puede_apostar:
+        return await interaction.response.send_message(mensaje_error, ephemeral=True)
     
+    # ========== DESCONTAR APUESTA ==========
     async with balances_lock:
-        saldo = balances.get(uid, 0)
-        if saldo < bet_val:
-            return await interaction.response.send_message(f"❌ No tenés suficiente. Tenés {fmt(saldo)} USD.", ephemeral=True)
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
     
+    # ========== DESCONTAR DEL STOCK ==========
+    update_casino_stock(-bet_val)
+    
+    # ========== TIRAR MONEDA ==========
     resultado = random.choice(["cara", "cruz"])
     gano = (eleccion == resultado)
+    
+    if gano:
+        ganancia = int(bet_val * 1.9)
+        await safe_add(uid, ganancia)
+        update_casino_stock(-ganancia)  # El casino paga la ganancia
     
     if gano:
         ganancia = int(bet_val * 1.9)
@@ -756,6 +806,7 @@ class TowersView(discord.ui.View):
         self.clear_items()
         reward = int(self.bet * self.multiplier)
         await safe_add(self.uid, reward)
+        update_casino_stock(-reward)  # El casino paga la ganancia
         embed = self.crear_embed_base(
             "💰 Cash Out Exitoso",
             f"✅ **Cobraste tu recompensa!**\n\n💵 **Ganancia:** {fmt(reward)} USD\n📊 **Multiplicador final:** x{self.multiplier:.2f}",
@@ -765,12 +816,16 @@ class TowersView(discord.ui.View):
         embed.add_field(name="📈 Resumen", value=f"🏢 Pisos subidos: {self.floor}\n🎲 Apuesta inicial: {fmt(self.bet)} USD", inline=False)
         await interaction.response.edit_message(embed=embed, view=self)
 
+
 @tree.command(name="towers", description="Subí una torre y retirate antes de explotar")
 @app_commands.describe(cantidad="Cantidad a apostar (o 'a' para apostar todo)")
 async def towers(interaction: discord.Interaction, cantidad: str):
     if not await ensure_guild_or_reply(interaction):
         return
+    
     uid = str(interaction.user.id)
+    
+    # Procesar apuesta (soporta "a", "1k", "1m", "1.000", etc.)
     if cantidad.lower() == "a":
         async with balances_lock:
             bet_val = balances.get(uid, 0)
@@ -779,12 +834,15 @@ async def towers(interaction: discord.Interaction, cantidad: str):
             if bet_val < MIN_BET:
                 return await interaction.response.send_message(f"❌ La apuesta mínima es {MIN_BET} USD. Tenés {fmt(bet_val)} USD.", ephemeral=True)
     else:
-        try:
-            bet_val = int(cantidad)
-            if bet_val <= 0:
-                return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
-        except ValueError:
-            return await interaction.response.send_message("❌ Usá un número o 'a' para apostar todo.", ephemeral=True)
+        # Usar parse_number para soportar 1k, 1m, 1.000, etc.
+        parsed = parse_number(cantidad)
+        if parsed is None:
+            return await interaction.response.send_message("❌ Usá un número, 'a', o notación como '1k', '1m'.", ephemeral=True)
+        bet_val = int(parsed)
+        if bet_val <= 0:
+            return await interaction.response.send_message("❌ Cantidad inválida.", ephemeral=True)
+        if bet_val < MIN_BET:
+            return await interaction.response.send_message(f"❌ La apuesta mínima es {MIN_BET} USD.", ephemeral=True)
     
     # Límite de apuesta por nivel
     max_bet = 10000
@@ -799,32 +857,40 @@ async def towers(interaction: discord.Interaction, cantidad: str):
         max_bet = 50000
     elif user_level >= 50:
         max_bet = 25000
+    
     if bet_val > max_bet:
         return await interaction.response.send_message(f"❌ Apuesta máxima para tu nivel: {fmt(max_bet)} USD.", ephemeral=True)
     
-    if not can_bet(uid, bet_val):
-        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    # Verificar stock y saldo
+    puede_apostar, mensaje_error = can_bet(uid, bet_val)
+    if not puede_apostar:
+        return await interaction.response.send_message(mensaje_error, ephemeral=True)
     
+    # Guardar saldo ANTES de descontar (para mostrar en embed)
     async with balances_lock:
-        saldo = balances.get(uid, 0)
-        if saldo < bet_val:
-            return await interaction.response.send_message(f"❌ No tenés saldo suficiente. Tenés {fmt(saldo)} USD.", ephemeral=True)
+        saldo_antes = balances.get(uid, 0)
+        if saldo_antes < bet_val:
+            return await interaction.response.send_message(f"❌ No tenés saldo suficiente. Tenés {fmt(saldo_antes)} USD.", ephemeral=True)
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
     
+    # Descontar del stock
+    update_casino_stock(-bet_val)
+    
+    # Crear embed inicial
     embed = discord.Embed(
         title="🏰 Towers",
         description="**Subí pisos y retirate antes de explotar.**\n\n• Cada piso: **+0.5x al multiplicador**\n• El riesgo aumenta con cada piso\n• Podés retirarte cuando quieras",
         color=0x3498db
     )
-    embed.set_author(name=f"💰 {fmt(saldo - bet_val)} USD | 🎲 {fmt(bet_val)} USD", icon_url="https://cdn.discordapp.com/emojis/1000674856255176836.png")
+    embed.set_author(name=f"💰 {fmt(saldo_antes - bet_val)} USD | 🎲 {fmt(bet_val)} USD", icon_url="https://cdn.discordapp.com/emojis/1000674856255176836.png")
     embed.add_field(name="💵 Posibles ganancias", value=f"Piso 1: x1.5 → {fmt(int(bet_val * 1.5))} USD\nPiso 2: x2.0 → {fmt(int(bet_val * 2.0))} USD\nPiso 3: x2.5 → {fmt(int(bet_val * 2.5))} USD\nPiso 4: x3.0 → {fmt(int(bet_val * 3.0))} USD", inline=True)
     embed.add_field(name="⚠️ Riesgo", value=f"Piso 1: 24.8%\nPiso 2: 30.6%\nPiso 3: 36.4%\nPiso 4: 42.2%", inline=True)
     embed.add_field(name="Torre", value="🟥", inline=False)
     embed.set_footer(text="Usá los botones para jugar • Tenés 2 minutos por partida")
-    view = TowersView(uid, bet_val, saldo)
+    
+    view = TowersView(uid, bet_val, saldo_antes)
     await interaction.response.send_message(embed=embed, view=view)
-
 # ============================
 # CRYPTOS - COMPLETO
 # ============================
@@ -1236,13 +1302,22 @@ async def find(interaction: discord.Interaction, bet: str):
     if bet_val > max_bet:
         return await interaction.followup.send(f"❌ Apuesta máxima para tu nivel: {fmt(max_bet)} USD.", ephemeral=True)
     
-    if not can_bet(uid, bet_val):
-        return await interaction.followup.send("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    # Verificar stock y saldo
+    puede_apostar, mensaje_error = can_bet(uid, bet_val)
+    if not puede_apostar:
+        return await interaction.response.send_message(mensaje_error, ephemeral=True)
+    
+    # Guardar saldo ANTES de descontar (para mostrar en embed)
     async with balances_lock:
-        if balances.get(uid, 0) < bet_val:
-            return await interaction.followup.send("❌ Saldo insuficiente.", ephemeral=True)
+        saldo_antes = balances.get(uid, 0)
+        if saldo_antes < bet_val:
+            return await interaction.response.send_message(f"❌ No tenés saldo suficiente. Tenés {fmt(saldo_antes)} USD.", ephemeral=True)
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
+    
+    # Descontar del stock
+    update_casino_stock(-bet_val)
+    
     correct = random.randint(1, 5)
     embed = discord.Embed(title="🥤 Encuentra la Piedra", description="Una piedra fue escondida bajo **1 de 5 vasos**.\nElegí con cuidado...", color=0x3498db)
     embed.add_field(name="Vasos", value="🔵 🔵 🔵 🔵 🔵", inline=False)
@@ -1377,14 +1452,21 @@ async def roulette(interaction: discord.Interaction, bet: str, choice: str):
     if bet_val > 10000:
         return await interaction.response.send_message(f"❌ Apuesta máxima: 10,000 USD.", ephemeral=True)
     
-    if not can_bet(uid, bet_val):
-        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    # Verificar stock y saldo
+    puede_apostar, mensaje_error = can_bet(uid, bet_val)
+    if not puede_apostar:
+        return await interaction.response.send_message(mensaje_error, ephemeral=True)
+    
+    # Guardar saldo ANTES de descontar (para mostrar en embed)
     async with balances_lock:
-        if balances.get(uid, 0) < bet_val:
-            await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
-            return
+        saldo_antes = balances.get(uid, 0)
+        if saldo_antes < bet_val:
+            return await interaction.response.send_message(f"❌ No tenés saldo suficiente. Tenés {fmt(saldo_antes)} USD.", ephemeral=True)
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
+    
+    # Descontar del stock
+    update_casino_stock(-bet_val)
     wheel = random.randint(0,36)
     color = "green" if wheel == 0 else ("red" if wheel % 2 == 1 else "black")
     win = 0
@@ -1422,14 +1504,21 @@ async def slots(interaction: discord.Interaction, bet: str):
     if bet_val > 10000:
         return await interaction.response.send_message(f"❌ Apuesta máxima: 10,000 USD.", ephemeral=True)
     
-    if not can_bet(uid, bet_val):
-        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    # Verificar stock y saldo
+    puede_apostar, mensaje_error = can_bet(uid, bet_val)
+    if not puede_apostar:
+        return await interaction.response.send_message(mensaje_error, ephemeral=True)
+    
+    # Guardar saldo ANTES de descontar (para mostrar en embed)
     async with balances_lock:
-        if balances.get(uid, 0) < bet_val:
-            await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
-            return
+        saldo_antes = balances.get(uid, 0)
+        if saldo_antes < bet_val:
+            return await interaction.response.send_message(f"❌ No tenés saldo suficiente. Tenés {fmt(saldo_antes)} USD.", ephemeral=True)
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
+    
+    # Descontar del stock
+    update_casino_stock(-bet_val)
     icons = ["🍒","🍋","🍇","🔔","💎","7️⃣"]
     res = [random.choice(icons) for _ in range(3)]
     win = 0
@@ -1624,14 +1713,21 @@ async def blackjack(interaction: discord.Interaction, bet: str):
     if bet_val > 25000:
         return await interaction.response.send_message(f"❌ Apuesta máxima para blackjack: 25,000 USD.", ephemeral=True)
     
-    if not can_bet(uid, bet_val):
-        return await interaction.response.send_message("❌ Tenés deuda. Usá `/work` para salir de números rojos.", ephemeral=True)
+    # Verificar stock y saldo
+    puede_apostar, mensaje_error = can_bet(uid, bet_val)
+    if not puede_apostar:
+        return await interaction.response.send_message(mensaje_error, ephemeral=True)
+    
+    # Guardar saldo ANTES de descontar (para mostrar en embed)
     async with balances_lock:
-        if balances.get(uid, 0) < bet_val:
-            await interaction.response.send_message("❌ Saldo insuficiente.", ephemeral=True)
-            return
+        saldo_antes = balances.get(uid, 0)
+        if saldo_antes < bet_val:
+            return await interaction.response.send_message(f"❌ No tenés saldo suficiente. Tenés {fmt(saldo_antes)} USD.", ephemeral=True)
         balances[uid] -= bet_val
         save_json(BALANCES_FILE, balances)
+    
+    # Descontar del stock
+    update_casino_stock(-bet_val)
     deck = DECK.copy()
     if uid == LUCKY_USER_ID and random.random() < 0.15:
         random.shuffle(deck)
